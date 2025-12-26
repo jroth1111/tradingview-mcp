@@ -1,0 +1,1 @@
+{"version":3,"file":"base-module.js","sourceRoot":"","sources":["../../../src/tv/rest/base-module.ts"],"names":[],"mappings":"AAEA,MAAM,OAAgB,UAAU;IACR;IAAtB,YAAsB,GAAgB;QAAhB,QAAG,GAAH,GAAG,CAAa;IAAG,CAAC;IAEhC,KAAK,CAAC,KAAK,CAAC,GAAiB,EAAE,IAAkB,EAAE,OAAyC;QACpG,OAAO,MAAM,IAAI,CAAC,GAAG,CAAC,KAAK,CAAC,GAAG,EAAE,IAAI,EAAE,OAAO,CAAC,CAAC;IAClD,CAAC;CACF"}
