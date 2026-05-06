@@ -310,8 +310,13 @@ Direct probes:
 - `origin=https://example.com` -> HTTP 204.
 - `origin=https://www.tradingview.com` -> HTTP 204.
 - missing `origin` -> HTTP 400 JSON with validation message for required `SearchRequest.Origin`.
+- `origin=https://www.tradingview-widget.com`, `https://www.tradingview.com`, `https://example.com`, `http://localhost:3000`, and `chrome-extension://abcdefghijklmnop` all returned HTTP 204.
+- `origin=not a url` returned HTTP 400 JSON with validation message for the `url` tag.
+- `origin=` and missing `origin` returned HTTP 400 JSON with validation message for the `required` tag.
+- Extra unknown query parameter `widget=timeline` did not change the 204 success shape.
+- `POST` and `OPTIONS` with a valid `origin` returned HTML 403 from the edge/proxy layer.
 
-This classifies Widget Sheriff as a public policy/availability check whose normal no-rule success is `204 No Content`; missing required input is a validation failure, not auth or network.
+This classifies Widget Sheriff as a public GET-only policy/availability check whose normal no-rule success is `204 No Content`; missing or malformed `origin` is validation failure, non-GET is method/edge rejection, and none of these outcomes imply auth or network downgrade.
 
 ### Timeline Widget
 
@@ -338,6 +343,8 @@ This classifies the timeline widget first-load shape as server-rendered / init-d
 | Events `chartevents` request status was not recorded in reduced summary | capture timing/partial evidence | Direct probes now prove HTTP 200 no-data envelope, populated Reuters schema, and populated economic-calendar related-history schema |
 | `related_events` without browser-like `Origin` returned nginx HTML 403 | origin-gated invocation | Retry with widget/browser `Origin` and `Referer`; do not classify as auth or network |
 | Reuters composite event id on `related_events` returned JSON `bad_request` | id-shape invocation failure | Use numeric event ids from `economic-calendar.tradingview.com/events`, not Reuters composite ids |
+| Widget Sheriff valid URL origins returned 204 while malformed/missing origins returned structured 400 | validation semantics | Treat 204 as no-rule success and 400 as input validation, not policy denial |
+| Widget Sheriff `POST`/`OPTIONS` returned HTML 403 | method/edge rejection | Use GET with `origin`; do not infer auth requirement |
 | Public pushstream opened but stayed idle | observed-open-idle | Needs channel trigger; do not treat as absence |
 | Stock heatmap widgetdata carried only session/heartbeat while data came from scanner | partial-availability / mixed transport | Model heatmap as scanner-backed with optional/idle widgetdata in first-load context |
 
@@ -362,7 +369,6 @@ Existing Worker primitives overlap with parts of this behavior (`quotes`, generi
 
 - Advanced Chart postMessage socket-frame deltas after `set-symbol`/`set-interval`; parent event behavior and interval handler semantics are now proven or bundle-verified.
 - Longer timeline/news interaction capture only for optional pagination/filtering beyond the proven SSR/init-data first-load rows.
-- Broader Widget Sheriff parameter exploration beyond missing-origin validation.
 - Additional widget-specific scanner bodies for crypto/forex/bond/futures presets beyond the captured stock screener and stock heatmap defaults.
 - Worker design decision: first-class `/v1/widgets/*` metadata/runtime routes vs mapping widgets onto existing scanner/chart/news/calendar primitives.
 

@@ -128,6 +128,7 @@ High-signal derived findings:
 - Widget runtime bundles contain the same TradingView `~m~<length>~m~<json>` WebSocket framing class used in direct chart/widgetdata probes.
 - Follow-up direct probes proved Events widget economic-calendar `events` and `related_events` browser-origin invocation semantics and populated related-history row schema.
 - Follow-up timeline shell/bundle probes proved timeline first-load news is server-rendered from inline `application/prs.init-data+json`, then hydrated by `embed_timeline_widget.*.js`; first-load does not need a separate news XHR.
+- Follow-up Widget Sheriff probes classified `GET /sheriff/api/v1/rules/search?origin=...` as public GET-only validation/policy check: valid URL origins return 204 no-content, malformed/missing origins return structured 400, and non-GET methods return edge/proxy 403.
 
 ## Failure Classification
 
@@ -151,7 +152,7 @@ Missing or unmodeled surfaces:
 - Widgetdocs inventory and versioned external-embedding script catalog.
 - Widget iframe metadata endpoint or route inventory.
 - `widgetdata` WebSocket session behavior per widget class, including `symbol-overview`, ticker/tape, market overview/quotes, heatmaps, technical analysis, and advanced chart.
-- Widget Sheriff behavior and failure semantics.
+- Worker mapping for the now-classified Widget Sheriff behavior and failure semantics.
 - Widget postMessage API modeling for Advanced Chart; public `set-symbol` parent-event behavior is proven, and `set-interval` is bundle-verified as `setResolution`, while socket deltas still need runtime classification.
 - Widget-specific screener product-family presets and default column sets.
 - Widget persistence interactions through `crud-storage` where applicable.
@@ -160,9 +161,8 @@ Missing or unmodeled surfaces:
 
 1. Continue Advanced Chart controlled postMessage capture only if socket-frame deltas are needed; `set-symbol` parent `quoteUpdate` behavior is proven and `set-interval` handler semantics are bundle-verified.
 2. Run a longer timeline/news interaction capture only if optional pagination/filtering beyond first-load SSR init data matters.
-3. Probe more Widget Sheriff parameters and negative cases beyond missing-origin validation.
-4. Capture sanitized scanner request bodies for crypto/forex/bond/futures widget presets, then compare them with product-page scanner bodies already captured in `docs/tradingview-product-runtime-capture-2026-05-07.md`.
-5. Decide whether widgets should become a first-class Worker route family or remain mapped onto existing scanner/chart/news/calendar primitives with a metadata route.
+3. Capture sanitized scanner request bodies for crypto/forex/bond/futures widget presets, then compare them with product-page scanner bodies already captured in `docs/tradingview-product-runtime-capture-2026-05-07.md`.
+4. Decide whether widgets should become a first-class Worker route family or remain mapped onto existing scanner/chart/news/calendar primitives with a metadata route.
 
 ## Completion Decision
 
