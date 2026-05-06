@@ -215,6 +215,23 @@ Direct follow-up replay with the same body shape and `index_filters[0].values=["
 
 This closes the first-pass forward-curve scanner body/schema gap for representative index and energy futures roots. Broader root coverage remains a normal expansion task, not a blocker to classifying the surface as unauthenticated-achievable.
 
+## Forward Curve Root Breadth
+
+Direct no-cookie replay of the same `futures-forward-curve` scanner body generalized across additional futures root families. All probes returned HTTP 200 JSON with the same `{totalCount,data}` envelope and row shape.
+
+| Root | Family | totalCount | First contract | Last contract | Currency |
+| --- | --- | ---: | --- | --- | --- |
+| `COMEX:GC` | metals | 33 | `COMEX:GCK2026` | `COMEX:GCZ2031` | USD |
+| `NYMEX:NG` | energy | 151 | `NYMEX:NGM2026` | `NYMEX:NGZ2038` | USD |
+| `CBOT:ZB` | rates | 3 | `CBOT:ZBM2026` | `CBOT:ZBZ2026` | USD |
+| `CBOT:ZS` | grains | 21 | `CBOT:ZSK2026` | `CBOT:ZSX2029` | USX |
+| `CME:6E` | FX | 23 | `CME:6EK2026` | `CME:6EH2031` | USD |
+| `CME:BTC` | crypto futures | 11 | `CME:BTCK2026` | `CME:BTCZ2027` | USD |
+| `ICEUS:KC` | softs | 10 | `ICEUS:KCK2026` | `ICEUS:KCH2028` | USX |
+| `ICEUS:SB` | softs | 11 | `ICEUS:SBN2026` | `ICEUS:SBH2029` | USX |
+
+This promotes the forward-curve scanner path from representative-root evidence to multi-family public coverage. Remaining forward-curve work is UI interaction variants rather than proving the scanner root body shape for ordinary futures families.
+
 ## Failure Classification
 
 | Observation | Classification | Handling |
@@ -225,6 +242,7 @@ This closes the first-pass forward-curve scanner body/schema gap for representat
 | Seasonals Table view toggle emitted no new TradingView backend requests and rendered decoded performance table locally | local UI rendering over existing data | Do not model Table view as a separate upstream endpoint |
 | Seasonals Average/Percent controls emitted no new scanner/chart REST or study-refresh WebSocket traffic in the observed no-login Table view run | local UI presentation controls | Do not model these controls as separate upstream endpoints unless future interactions prove a backend delta |
 | Seasonals year-range drag from 2021 to 2002 emitted `create_study` and `modify_study` with `years.start=2002,end=2026`, then returned `du` compressed study output | unauthenticated-achievable study reconfiguration | Model year ranges as `Seasonals@tv-basicstudies-*` config, not a separate endpoint |
+| Forward-curve scanner body returned HTTP 200 JSON for COMEX/NYMEX/CBOT/CME/ICEUS roots across metals, energy, rates, grains, FX, crypto futures, and softs | unauthenticated-achievable multi-family scanner schema | Treat ordinary root changes as scanner inputs, not separate endpoints |
 | CDP script process stayed open after writing the artifact | harness lifecycle bug | Exact Chrome/Node PIDs were terminated and temp profile removed; captured runtime evidence remains valid |
 | Pushstream opened but no channel messages were needed for these views | observed-open-idle | Keep pushstream trigger behavior open elsewhere |
 
@@ -241,9 +259,9 @@ Potential modeling paths:
 
 ## Remaining Gaps
 
-1. Probe additional forward-curve roots and interaction variants.
+1. Probe forward-curve UI interaction variants.
 2. Probe broader seasonals symbol classes if Worker modeling needs non-stock coverage.
 
 ## Completion Decision
 
-Seasonals and forward curves are now public browser-runtime surfaces, not merely static leads. Seasonals study output is decoded into a stable first-pass JSON schema, Table view plus Average/Percent display controls are local presentation variants, year-range changes are verified as `Seasonals@tv-basicstudies-*` config updates, and forward-curve scanner schema is verified for representative `CME_MINI:ES` and `NYMEX:CL` roots. The full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, macro-map remaining UI interactions, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.
+Seasonals and forward curves are now public browser-runtime surfaces, not merely static leads. Seasonals study output is decoded into a stable first-pass JSON schema, Table view plus Average/Percent display controls are local presentation variants, year-range changes are verified as `Seasonals@tv-basicstudies-*` config updates, and forward-curve scanner schema is verified across representative index, energy, metals, rates, grains, FX, crypto-futures, and soft-commodity roots. The full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, macro-map remaining UI interactions, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.
