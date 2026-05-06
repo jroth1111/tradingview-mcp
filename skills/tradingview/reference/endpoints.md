@@ -149,6 +149,140 @@ Status legend:
 | POST | `/v1/fundamentals` | HMAC | live |
 | POST | `/v1/calendar/earnings` | HMAC | live |
 | POST | `/v1/calendar/dividends` | HMAC | live |
+| GET  | `/v1/news/symbol` | HMAC | live (news-mediator headlines) |
+| GET  | `/v1/news/symbol-view` | HMAC | live (rendered symbol news view) |
+| GET  | `/v1/news/category` | HMAC | live (category headlines) |
+| GET  | `/v1/news/story` | HMAC | live (single story body) |
+| GET  | `/v1/calendar/events` | HMAC | live (economic-calendar; Origin header injected) |
+| POST | `/v1/calendar/ipos` | HMAC | live |
+| POST | `/v1/calendar/splits` | HMAC | live |
+
+## Charts-storage (P11)
+
+| Method | Path | Auth | Status |
+| --- | --- | --- | --- |
+| POST | `/v1/charts/list` | HMAC + admin session | live |
+| POST | `/v1/charts/token` | HMAC + admin session | live (RS512 JWT cached by (userId,layoutId); refresh on 401/403) |
+| POST | `/v1/charts/layout` | HMAC + admin session | live |
+| POST | `/v1/charts/layout/user` | HMAC + admin session | live (user-level sources) |
+| POST | `/v1/charts/layout/save` | HMAC + admin session | live |
+| POST | `/v1/charts/layout/delete` | HMAC + admin session | live |
+| POST | `/v1/charts/layout/copy` | HMAC + admin session | lead (verify with smoke test) |
+| POST | `/v1/charts/layout/move` | HMAC + admin session | lead (verify with smoke test) |
+
+## Watchlists (P12)
+
+| Method | Path | Auth | Status |
+| --- | --- | --- | --- |
+| GET  | `/v1/watchlists/list` | HMAC + admin session | live |
+| GET  | `/v1/watchlists/get/{id}` | HMAC + admin session | live |
+| POST | `/v1/watchlists/create` | HMAC + admin session | live |
+| POST | `/v1/watchlists/delete/{id}` | HMAC + admin session | live |
+| POST | `/v1/watchlists/append/{id}` | HMAC + admin session | live |
+| POST | `/v1/watchlists/remove-symbols/{id}` | HMAC + admin session | live |
+| POST | `/v1/watchlists/replace/{id}` | HMAC + admin session | live |
+| POST | `/v1/watchlists/rename/{id}` | HMAC + admin session | live |
+| POST | `/v1/watchlists/update-meta/{id}` | HMAC + admin session | live |
+| POST | `/v1/watchlists/replace-symbol` | HMAC + admin session | live |
+| GET  | `/v1/watchlists/active` | HMAC + admin session | live |
+| POST | `/v1/watchlists/active/{id}` | HMAC + admin session | live |
+
+## Pine CRUD (P13)
+
+| Method | Path | Auth | Status |
+| --- | --- | --- | --- |
+| GET  | `/v1/pine/script-info` | HMAC | live (read-only allowed without session) |
+| GET  | `/v1/pine/versions` | HMAC | live |
+| GET  | `/v1/pine/versions-all` | HMAC | live |
+| GET  | `/v1/pine/auth` | HMAC | live (session-gated read auth check) |
+| GET  | `/v1/pine/list` | HMAC | live (filtered by category) |
+| POST | `/v1/pine/save` | HMAC + admin session | live (modes: new, next, new_draft, next_draft) |
+| POST | `/v1/pine/publish` | HMAC + admin session | live |
+| POST | `/v1/pine/delete` | HMAC + admin session | live |
+| POST | `/v1/pine/rename` | HMAC + admin session | live |
+| POST | `/v1/pine/copy` | HMAC + admin session | live |
+| POST | `/v1/pine/convert` | HMAC + admin session | live |
+| POST | `/v1/pine/parse-title` | HMAC | live |
+| GET  | `/v1/pine/translate-light` | HMAC | live |
+| POST | `/v1/pine/gen-alert` | HMAC + admin session | live |
+
+## Options (P14)
+
+| Method | Path | Auth | Status |
+| --- | --- | --- | --- |
+| GET  | `/v1/options/iv/{symbol}` | HMAC | live |
+| GET  | `/v1/options/volatility-chart/{symbol}` | HMAC | live |
+| GET  | `/v1/options/expiries/{symbol}` | HMAC | live |
+| GET  | `/v1/options/strikes/{symbol}` | HMAC | live |
+| GET  | `/v1/options/chain/{symbol}` | HMAC | live |
+| GET  | `/v1/options/greeks/{contractSymbol}` | HMAC | live |
+| POST | `/v1/options/scan` | HMAC | live |
+| GET  | `/v1/options/metainfo` | HMAC | live |
+
+## Scanner v2 (P15)
+
+| Method | Path | Auth | Status |
+| --- | --- | --- | --- |
+| POST | `/v1/scan2` | HMAC | live (filter2 boolean tree) |
+| POST | `/v1/screener/metainfo` | HMAC | live |
+| GET  | `/v1/screener/enum` | HMAC | live |
+| GET  | `/v1/screener/columns` | HMAC | live |
+| GET  | `/v1/screener/markets` | HMAC | live |
+| GET  | `/v1/screener/symbol` | HMAC | live |
+
+## Live streams (P18, StreamBridge DO)
+
+| Method | Path | Auth | Status |
+| --- | --- | --- | --- |
+| GET  | `/v1/stream/alerts` | HMAC | live (SSE; pushstream private channel + alerts) |
+| GET  | `/v1/stream/news` | HMAC | live (SSE; news-mediator) |
+| GET  | `/v1/stream/notifications` | HMAC | live (SSE; user notifications) |
+| POST | `/v1/stream/alerts/poll` | HMAC | live (1000-entry ring buffer; Last-Event-ID resume) |
+| POST | `/v1/stream/news/poll` | HMAC | live |
+
+## Drawing templates (P19)
+
+| Method | Path | Auth | Status |
+| --- | --- | --- | --- |
+| POST | `/v1/line-tools/tools` | HMAC | live (drawing tool catalogue) |
+| POST | `/v1/line-tools/templates/list` | HMAC + admin session | live |
+| POST | `/v1/line-tools/templates/load` | HMAC + admin session | live |
+| POST | `/v1/line-tools/templates/save` | HMAC + admin session | live |
+| POST | `/v1/line-tools/templates/delete` | HMAC + admin session | live |
+
+## www.tradingview.com REST (P20)
+
+| Method | Path | Auth | Status |
+| --- | --- | --- | --- |
+| POST | `/v1/symbol/resolve` | HMAC | live |
+| POST | `/v1/symbol/resolve-batch` | HMAC | live |
+| POST | `/v1/study-templates/standard` | HMAC | live (built-in standard templates) |
+| POST | `/v1/ideas/feed` | HMAC | live |
+| POST | `/v1/social/tweet` | HMAC | live |
+| POST | `/v1/chats/public` | HMAC | live |
+| POST | `/v1/chats/dm` | HMAC + admin session | live |
+| POST | `/v1/conversation-status` | HMAC | live |
+| POST | `/v1/financial/fundamentals-config` | HMAC | live (KV-cached) |
+| POST | `/v1/support/i18n` | HMAC | live (KV-cached) |
+| POST | `/v1/brokers/trading-panel` | HMAC | live |
+| POST | `/v1/user/profile` | HMAC + admin session | live (read or update) |
+
+## TVSettings user prefs (P21)
+
+| Method | Path | Auth | Status |
+| --- | --- | --- | --- |
+| POST | `/v1/user-prefs/favorites/indicators/list` | HMAC + admin session | live |
+| POST | `/v1/user-prefs/favorites/indicators/add` | HMAC + admin session | live |
+| POST | `/v1/user-prefs/favorites/indicators/remove` | HMAC + admin session | live |
+| POST | `/v1/user-prefs/favorites/drawings/list` | HMAC + admin session | live |
+| POST | `/v1/user-prefs/favorites/drawings/add` | HMAC + admin session | live |
+| POST | `/v1/user-prefs/favorites/drawings/remove` | HMAC + admin session | live |
+| POST | `/v1/user-prefs/recents/study-templates/list` | HMAC + admin session | live |
+| POST | `/v1/user-prefs/recents/study-templates/add` | HMAC + admin session | live |
+| POST | `/v1/user-prefs/saved-screens/list` | HMAC + admin session | live |
+| POST | `/v1/user-prefs/saved-screens/save` | HMAC + admin session | live |
+| POST | `/v1/user-prefs/saved-screens/delete` | HMAC + admin session | live |
+| POST | `/v1/user-prefs/raw` | HMAC + admin session | live |
 
 ## Deferred
 
@@ -158,6 +292,7 @@ Status legend:
 | Stateful chart-session DO | `tradingview-2v6` | Multi-step iterate, replay-driven streaming. |
 | Pine compile + run loop | `tradingview-la1` | Decomposes into P1 (`/v1/pine/compile`) + P2 (`/v1/pine/run`) above. |
 | Strategy backtest | `tradingview-g6v` | Depends on P0 (`/v1/study` fix). |
+| WS protocol depth (verbs+events; quality, timezone, series ops, pointsets, replay-state) | `tradingview-aau` | `worker/src/ws-verbs.ts` + `worker/src/ws-events.ts` helpers landed; HTTP route surface deferred until `chart-session-do.ts` exposes the matching sub-routes (`/quality`, `/timezone`, `/series/*`, `/pointset/*`, `/replay/state`). |
 
 ## Error mapping
 

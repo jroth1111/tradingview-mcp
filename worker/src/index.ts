@@ -107,6 +107,119 @@ import {
   type StoredSession,
 } from "./auth-store";
 import { classifyUpstreamError } from "./upstream-error";
+import {
+  copyLayout,
+  deleteLayout,
+  getLayout,
+  getUserSources,
+  listCharts,
+  mintChartToken,
+  moveLayout,
+  saveLayout,
+} from "./charts";
+import {
+  listWatchlists,
+  getWatchlist,
+  createWatchlist,
+  deleteWatchlist,
+  appendSymbols,
+  removeSymbols,
+  replaceSymbols,
+  renameWatchlist,
+  updateMeta,
+  replaceSymbol,
+  getActiveWatchlist,
+  setActiveWatchlist,
+  type WatchlistListType,
+  type WatchlistType,
+} from "./watchlists";
+import {
+  getScriptInfo,
+  getVersionsLast,
+  getVersionsAll,
+  isAuthToGet,
+  listPineScripts,
+  savePineScript,
+  publishPineScript,
+  deletePineScript,
+  renamePineScript,
+  copyPineScript,
+  convertPineScript,
+  parsePineTitle,
+  translateLightSource,
+  genPineAlert,
+} from "./pine-crud";
+import {
+  getInTimeIv,
+  getVolatilityChart,
+  getExpiries,
+  getStrikes,
+  getOptionsChain,
+  getGreeks,
+  scanOptions,
+  getOptionsMetainfo,
+  OptionsValidationError,
+  VOLATILITY_XAXIS_VALUES,
+} from "./options";
+import {
+  scanV2,
+  screenerMetainfo,
+  getOrderedEnum,
+  getColumnCatalog,
+  listMarkets as listScannerMarkets,
+  getSymbolFields,
+  type Scan2Request,
+} from "./scanner-v2";
+import {
+  getSymbolNews,
+  getSymbolNewsView,
+  getCategoryNews,
+  getStoryJson,
+} from "./news-mediator";
+import {
+  getEconomicEvents,
+  getIposCalendar,
+  getSplitsCalendar,
+} from "./calendar";
+import {
+  listLineTools,
+  listLineToolTemplates,
+  loadLineToolTemplate,
+  saveLineToolTemplate,
+  deleteLineToolTemplate,
+  isDrawingTool,
+} from "./line-tools";
+import {
+  resolveSymbol as wwwResolveSymbol,
+  resolveSymbolBatch,
+  listStudyTemplatesStandard,
+  getIdeasFeed,
+  getTweetData,
+  getPublicChats,
+  getDmChats,
+  getConversationStatus,
+  getFundamentalsConfig,
+  getSupportI18n,
+  getBrokerPanel,
+  getUserProfile as wwwGetUserProfile,
+  updateUserProfile as wwwUpdateUserProfile,
+} from "./www-api";
+import {
+  listFavoriteIndicators,
+  addFavoriteIndicator,
+  removeFavoriteIndicator,
+  listFavoriteDrawings,
+  addFavoriteDrawing,
+  removeFavoriteDrawing,
+  listRecentStudyTemplates,
+  addRecentStudyTemplate,
+  listSavedScreens,
+  saveScreen,
+  deleteSavedScreen,
+  getRawPrefs,
+} from "./user-prefs";
+import * as wsVerbs from "./ws-verbs";
+import * as wsEvents from "./ws-events";
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
 
@@ -637,6 +750,95 @@ app.get("/", (c) =>
       "/v1/chart-session/study/modify",
       "/v1/chart-session/replay/step",
       "/v1/chart-session/close",
+      "/v1/charts/list",
+      "/v1/charts/token",
+      "/v1/charts/layout",
+      "/v1/charts/layout/user",
+      "/v1/charts/layout/save",
+      "/v1/charts/layout/delete",
+      "/v1/charts/layout/copy",
+      "/v1/charts/layout/move",
+      "/v1/watchlists/list",
+      "/v1/watchlists/get/:id",
+      "/v1/watchlists/create",
+      "/v1/watchlists/delete/:id",
+      "/v1/watchlists/append/:id",
+      "/v1/watchlists/remove-symbols/:id",
+      "/v1/watchlists/replace/:id",
+      "/v1/watchlists/rename/:id",
+      "/v1/watchlists/update-meta/:id",
+      "/v1/watchlists/replace-symbol",
+      "/v1/watchlists/active",
+      "/v1/watchlists/active/:id",
+      "/v1/pine/script-info",
+      "/v1/pine/versions",
+      "/v1/pine/versions-all",
+      "/v1/pine/auth",
+      "/v1/pine/list",
+      "/v1/pine/save",
+      "/v1/pine/publish",
+      "/v1/pine/delete",
+      "/v1/pine/rename",
+      "/v1/pine/copy",
+      "/v1/pine/convert",
+      "/v1/pine/parse-title",
+      "/v1/pine/translate-light",
+      "/v1/pine/gen-alert",
+      "/v1/options/iv/:symbol",
+      "/v1/options/volatility-chart/:symbol",
+      "/v1/options/expiries/:symbol",
+      "/v1/options/strikes/:symbol",
+      "/v1/options/chain/:symbol",
+      "/v1/options/greeks/:contractSymbol",
+      "/v1/options/scan",
+      "/v1/options/metainfo",
+      "/v1/scan2",
+      "/v1/screener/metainfo",
+      "/v1/screener/enum",
+      "/v1/screener/columns",
+      "/v1/screener/markets",
+      "/v1/screener/symbol",
+      "/v1/news/symbol",
+      "/v1/news/symbol-view",
+      "/v1/news/category",
+      "/v1/news/story",
+      "/v1/calendar/events",
+      "/v1/calendar/ipos",
+      "/v1/calendar/splits",
+      "/v1/stream/alerts",
+      "/v1/stream/news",
+      "/v1/stream/notifications",
+      "/v1/stream/alerts/poll",
+      "/v1/stream/news/poll",
+      "/v1/line-tools/tools",
+      "/v1/line-tools/templates/list",
+      "/v1/line-tools/templates/load",
+      "/v1/line-tools/templates/save",
+      "/v1/line-tools/templates/delete",
+      "/v1/symbol/resolve",
+      "/v1/symbol/resolve-batch",
+      "/v1/study-templates/standard",
+      "/v1/ideas/feed",
+      "/v1/social/tweet",
+      "/v1/chats/public",
+      "/v1/chats/dm",
+      "/v1/conversation-status",
+      "/v1/financial/fundamentals-config",
+      "/v1/support/i18n",
+      "/v1/brokers/trading-panel",
+      "/v1/user/profile",
+      "/v1/user-prefs/favorites/indicators/list",
+      "/v1/user-prefs/favorites/indicators/add",
+      "/v1/user-prefs/favorites/indicators/remove",
+      "/v1/user-prefs/favorites/drawings/list",
+      "/v1/user-prefs/favorites/drawings/add",
+      "/v1/user-prefs/favorites/drawings/remove",
+      "/v1/user-prefs/recents/study-templates/list",
+      "/v1/user-prefs/recents/study-templates/add",
+      "/v1/user-prefs/saved-screens/list",
+      "/v1/user-prefs/saved-screens/save",
+      "/v1/user-prefs/saved-screens/delete",
+      "/v1/user-prefs/raw",
     ],
     note:
       "Provide sessionId from your TradingView browser session and use endpoint=prodata for premium feeds.",
@@ -2478,9 +2680,2006 @@ app.post("/v1/chart-session/close", async (c) => {
   }
 });
 
+
+// === P11 charts-storage (tradingview-elb) ============================
+const resolveChartUserId = async (
+  c: any,
+  session: { sessionId?: string; sessionSign?: string },
+  body: { userId?: string | number },
+): Promise<string | number | null> => {
+  if (body?.userId !== undefined && body.userId !== null && body.userId !== "") {
+    return body.userId;
+  }
+  if (!session.sessionId) return null;
+  try {
+    const profile = await getUserProfile({
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    return profile?.id ?? null;
+  } catch {
+    return null;
+  }
+};
+
+app.post("/v1/charts/list", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as { sessionId?: string; sessionSign?: string };
+    const session = await resolveSession(c.env.CACHE_META, body);
+    if (!session.sessionId) return c.json({ error: "sessionId required" }, 401);
+    const layouts = await listCharts({ sessionId: session.sessionId, sessionSign: session.sessionSign });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ layouts, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "charts list failed");
+  }
+});
+
+app.post("/v1/charts/token", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      layout?: string;
+      force?: boolean;
+      userId?: string | number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.layout) return c.json({ error: "layout required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, body);
+    if (!session.sessionId) return c.json({ error: "sessionId required" }, 401);
+    const userId = await resolveChartUserId(c, session, body);
+    if (userId === null) return c.json({ error: "userId required" }, 400);
+    const rec = await mintChartToken(
+      { sessionId: session.sessionId, sessionSign: session.sessionSign, userId, kv: c.env.CACHE_META },
+      body.layout,
+      { force: !!body.force },
+    );
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({
+      iat: rec.iat,
+      exp: rec.exp,
+      type: rec.type,
+      layoutId: rec.layoutId,
+      ownerId: rec.ownerId,
+      shared: rec.shared,
+      cachedAt: rec.cachedAt,
+      authSource: session.source,
+    });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "chart-token mint failed");
+  }
+});
+
+app.post("/v1/charts/layout", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      layout?: string;
+      chart_id?: string | number;
+      symbol?: string;
+      includeOwnerSource?: boolean;
+      userId?: string | number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.layout) return c.json({ error: "layout required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, body);
+    if (!session.sessionId) return c.json({ error: "sessionId required" }, 401);
+    const userId = await resolveChartUserId(c, session, body);
+    if (userId === null) return c.json({ error: "userId required" }, 400);
+    const result = await getLayout(
+      { sessionId: session.sessionId, sessionSign: session.sessionSign, userId, kv: c.env.CACHE_META },
+      { layoutId: body.layout, chartId: body.chart_id, symbol: body.symbol, includeOwnerSource: body.includeOwnerSource },
+    );
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "charts layout failed");
+  }
+});
+
+app.post("/v1/charts/layout/user", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      layout?: string;
+      symbol?: string;
+      userId?: string | number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.layout) return c.json({ error: "layout required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, body);
+    if (!session.sessionId) return c.json({ error: "sessionId required" }, 401);
+    const userId = await resolveChartUserId(c, session, body);
+    if (userId === null) return c.json({ error: "userId required" }, 400);
+    const result = await getUserSources(
+      { sessionId: session.sessionId, sessionSign: session.sessionSign, userId, kv: c.env.CACHE_META },
+      { layoutId: body.layout, symbol: body.symbol },
+    );
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "charts user sources failed");
+  }
+});
+
+app.post("/v1/charts/layout/save", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      layout?: string;
+      chart_id?: string | number;
+      content?: any;
+      name?: string;
+      symbol?: string;
+      resolution?: string;
+      userId?: string | number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.layout) return c.json({ error: "layout required" }, 400);
+    if (body.content === undefined || body.content === null) return c.json({ error: "content required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, body);
+    if (!session.sessionId) return c.json({ error: "sessionId required" }, 401);
+    const userId = await resolveChartUserId(c, session, body);
+    if (userId === null) return c.json({ error: "userId required" }, 400);
+    const result = await saveLayout(
+      { sessionId: session.sessionId, sessionSign: session.sessionSign, userId, kv: c.env.CACHE_META },
+      {
+        layoutId: body.layout,
+        chartId: body.chart_id,
+        content: body.content,
+        name: body.name,
+        symbol: body.symbol,
+        resolution: body.resolution,
+      },
+    );
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "charts layout save failed");
+  }
+});
+
+app.post("/v1/charts/layout/delete", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      layout?: string;
+      chart_id?: string | number;
+      userId?: string | number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.layout) return c.json({ error: "layout required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, body);
+    if (!session.sessionId) return c.json({ error: "sessionId required" }, 401);
+    const userId = await resolveChartUserId(c, session, body);
+    if (userId === null) return c.json({ error: "userId required" }, 400);
+    const result = await deleteLayout(
+      { sessionId: session.sessionId, sessionSign: session.sessionSign, userId, kv: c.env.CACHE_META },
+      { layoutId: body.layout, chartId: body.chart_id },
+    );
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "charts layout delete failed");
+  }
+});
+
+app.post("/v1/charts/layout/copy", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      from_layout?: string;
+      to_layout?: string;
+      chart_id?: string | number;
+      userId?: string | number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.from_layout || !body?.to_layout) return c.json({ error: "from_layout and to_layout required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, body);
+    if (!session.sessionId) return c.json({ error: "sessionId required" }, 401);
+    const userId = await resolveChartUserId(c, session, body);
+    if (userId === null) return c.json({ error: "userId required" }, 400);
+    const result = await copyLayout(
+      { sessionId: session.sessionId, sessionSign: session.sessionSign, userId, kv: c.env.CACHE_META },
+      { fromLayout: body.from_layout, toLayout: body.to_layout, chartId: body.chart_id },
+    );
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "charts layout copy failed");
+  }
+});
+
+app.post("/v1/charts/layout/move", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      from_layout?: string;
+      to_layout?: string;
+      chart_id?: string | number;
+      userId?: string | number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.from_layout || !body?.to_layout) return c.json({ error: "from_layout and to_layout required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, body);
+    if (!session.sessionId) return c.json({ error: "sessionId required" }, 401);
+    const userId = await resolveChartUserId(c, session, body);
+    if (userId === null) return c.json({ error: "userId required" }, 400);
+    const result = await moveLayout(
+      { sessionId: session.sessionId, sessionSign: session.sessionSign, userId, kv: c.env.CACHE_META },
+      { fromLayout: body.from_layout, toLayout: body.to_layout, chartId: body.chart_id },
+    );
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "charts layout move failed");
+  }
+});
+
+// === P12 watchlists (tradingview-9oz) ================================
+const requireWatchlistCtx = async (
+  c: any,
+  body: { sessionId?: string; sessionSign?: string; csrfToken?: string },
+) => {
+  const session = await resolveSession(c.env.CACHE_META, {
+    sessionId: body?.sessionId,
+    sessionSign: body?.sessionSign,
+  });
+  if (!session.sessionId) {
+    return { error: c.json({ error: "sessionId required" }, 400) } as const;
+  }
+  return {
+    session,
+    ctx: {
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+      csrfToken: body?.csrfToken,
+    },
+  } as const;
+};
+
+app.get("/v1/watchlists/list", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const url = new URL(c.req.url);
+    const type = (url.searchParams.get("type") || "all") as WatchlistListType;
+    const r = await requireWatchlistCtx(c, {});
+    if ("error" in r) return r.error;
+    const result = await listWatchlists(r.ctx, type);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "watchlists list failed");
+  }
+});
+
+app.get("/v1/watchlists/get/:id", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const id = c.req.param("id");
+    if (!id) return c.json({ error: "id required" }, 400);
+    const r = await requireWatchlistCtx(c, {});
+    if ("error" in r) return r.error;
+    const result = await getWatchlist(r.ctx, id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "watchlist get failed");
+  }
+});
+
+app.post("/v1/watchlists/create", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      name: string;
+      symbols?: string[];
+      sessionId?: string;
+      sessionSign?: string;
+      csrfToken?: string;
+    };
+    if (!body?.name) return c.json({ error: "name required" }, 400);
+    const r = await requireWatchlistCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await createWatchlist(r.ctx, { name: body.name, symbols: body.symbols });
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "watchlist create failed");
+  }
+});
+
+app.post("/v1/watchlists/delete/:id", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const id = c.req.param("id");
+    if (!id) return c.json({ error: "id required" }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+      csrfToken?: string;
+    };
+    const r = await requireWatchlistCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await deleteWatchlist(r.ctx, id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "watchlist delete failed");
+  }
+});
+
+const handleWatchlistSymbolOp = async (
+  c: any,
+  fn: (ctx: any, id: string, symbols: string[]) => Promise<any>,
+  errLabel: string,
+) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const id = c.req.param("id");
+    if (!id) return c.json({ error: "id required" }, 400);
+    const raw = await c.req.json();
+    let symbols: string[] | undefined;
+    let auth: { sessionId?: string; sessionSign?: string; csrfToken?: string } = {};
+    if (Array.isArray(raw)) {
+      symbols = raw;
+    } else if (raw && typeof raw === "object") {
+      symbols = Array.isArray(raw.symbols) ? raw.symbols : undefined;
+      auth = {
+        sessionId: raw.sessionId,
+        sessionSign: raw.sessionSign,
+        csrfToken: raw.csrfToken,
+      };
+    }
+    if (!Array.isArray(symbols)) return c.json({ error: "symbols array required" }, 400);
+    const r = await requireWatchlistCtx(c, auth);
+    if ("error" in r) return r.error;
+    const result = await fn(r.ctx, id, symbols);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, errLabel);
+  }
+};
+
+app.post("/v1/watchlists/append/:id", (c) =>
+  handleWatchlistSymbolOp(c, appendSymbols, "watchlist append failed"));
+app.post("/v1/watchlists/remove-symbols/:id", (c) =>
+  handleWatchlistSymbolOp(c, removeSymbols, "watchlist remove failed"));
+app.post("/v1/watchlists/replace/:id", (c) =>
+  handleWatchlistSymbolOp(c, replaceSymbols, "watchlist replace failed"));
+
+app.post("/v1/watchlists/rename/:id", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const id = c.req.param("id");
+    if (!id) return c.json({ error: "id required" }, 400);
+    const body = (await c.req.json()) as {
+      name: string;
+      sessionId?: string;
+      sessionSign?: string;
+      csrfToken?: string;
+    };
+    if (!body?.name) return c.json({ error: "name required" }, 400);
+    const r = await requireWatchlistCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await renameWatchlist(r.ctx, id, body.name);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "watchlist rename failed");
+  }
+});
+
+app.post("/v1/watchlists/update-meta/:id", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const id = c.req.param("id");
+    if (!id) return c.json({ error: "id required" }, 400);
+    const body = (await c.req.json()) as {
+      description: string;
+      sessionId?: string;
+      sessionSign?: string;
+      csrfToken?: string;
+    };
+    if (typeof body?.description !== "string") {
+      return c.json({ error: "description string required" }, 400);
+    }
+    const r = await requireWatchlistCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await updateMeta(r.ctx, id, body.description);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "watchlist update-meta failed");
+  }
+});
+
+app.post("/v1/watchlists/replace-symbol", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      type: WatchlistType;
+      id: number | string;
+      old: string;
+      new: string;
+      sessionId?: string;
+      sessionSign?: string;
+      csrfToken?: string;
+    };
+    if (body?.type !== "custom" && body?.type !== "colored") {
+      return c.json({ error: "type must be 'custom' or 'colored'" }, 400);
+    }
+    if (body?.id == null) return c.json({ error: "id required" }, 400);
+    if (!body?.old || !body?.new) return c.json({ error: "old and new symbols required" }, 400);
+    const r = await requireWatchlistCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await replaceSymbol(r.ctx, {
+      type: body.type,
+      id: body.id,
+      old: body.old,
+      new: body.new,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "watchlist replace-symbol failed");
+  }
+});
+
+app.get("/v1/watchlists/active", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const r = await requireWatchlistCtx(c, {});
+    if ("error" in r) return r.error;
+    const result = await getActiveWatchlist(r.ctx);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "watchlist active get failed");
+  }
+});
+
+app.post("/v1/watchlists/active/:id", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const id = c.req.param("id");
+    if (!id) return c.json({ error: "id required" }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+      csrfToken?: string;
+    };
+    const r = await requireWatchlistCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await setActiveWatchlist(r.ctx, id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "watchlist active set failed");
+  }
+});
+
+// === P13 pine-crud (tradingview-smh) =================================
+const requirePineCtx = async (
+  c: any,
+  body: { sessionId?: string; sessionSign?: string },
+  { writeOp = false }: { writeOp?: boolean } = {},
+) => {
+  const session = await resolveSession(c.env.CACHE_META, {
+    sessionId: body?.sessionId,
+    sessionSign: body?.sessionSign,
+  });
+  if (writeOp && !session.sessionId) {
+    return { error: c.json({ error: "sessionId required" }, 400) } as const;
+  }
+  return {
+    session,
+    ctx: {
+      sessionId: session.sessionId ?? "",
+      sessionSign: session.sessionSign,
+    },
+  } as const;
+};
+
+app.get("/v1/pine/script-info", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const id = new URL(c.req.url).searchParams.get("id");
+    if (!id) return c.json({ error: "id required" }, 400);
+    const r = await requirePineCtx(c, {}, { writeOp: false });
+    if ("error" in r) return r.error;
+    const result = await getScriptInfo(r.ctx, id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine script-info failed");
+  }
+});
+
+app.get("/v1/pine/versions", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const id = new URL(c.req.url).searchParams.get("id");
+    if (!id) return c.json({ error: "id required" }, 400);
+    const r = await requirePineCtx(c, {});
+    if ("error" in r) return r.error;
+    const result = await getVersionsLast(r.ctx, id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine versions failed");
+  }
+});
+
+app.get("/v1/pine/versions-all", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const id = new URL(c.req.url).searchParams.get("id");
+    if (!id) return c.json({ error: "id required" }, 400);
+    const r = await requirePineCtx(c, {});
+    if ("error" in r) return r.error;
+    const result = await getVersionsAll(r.ctx, id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine versions-all failed");
+  }
+});
+
+app.get("/v1/pine/auth", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const url = new URL(c.req.url);
+    const id = url.searchParams.get("id");
+    const version = url.searchParams.get("version");
+    if (!id) return c.json({ error: "id required" }, 400);
+    if (!version) return c.json({ error: "version required" }, 400);
+    const r = await requirePineCtx(c, {});
+    if ("error" in r) return r.error;
+    const result = await isAuthToGet(r.ctx, id, version);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine auth check failed");
+  }
+});
+
+app.get("/v1/pine/list", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const filter = new URL(c.req.url).searchParams.get("filter");
+    if (!filter) return c.json({ error: "filter required" }, 400);
+    const r = await requirePineCtx(c, {});
+    if ("error" in r) return r.error;
+    const result = await listPineScripts(r.ctx.sessionId ? r.ctx : null, filter);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (err?.code === "filter_not_allowed") {
+      return c.json({ error: err.message, category: "validation" }, 400);
+    }
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine list failed");
+  }
+});
+
+app.post("/v1/pine/save", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      mode: "new" | "next" | "new_draft" | "next_draft";
+      source: string;
+      id?: string; name?: string;
+      allowOverwrite?: boolean; allowCreateNew?: boolean; allowUseExistingDraft?: boolean;
+      sessionId?: string; sessionSign?: string;
+    };
+    if (!body?.source) return c.json({ error: "source required" }, 400);
+    if (!body?.mode) return c.json({ error: "mode required" }, 400);
+    const r = await requirePineCtx(c, body, { writeOp: true });
+    if ("error" in r) return r.error;
+    const result = await savePineScript(r.ctx, body);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine save failed");
+  }
+});
+
+app.post("/v1/pine/publish", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      mode: "new" | "next";
+      source: string; id?: string;
+      access?: "open" | "protected" | "invite_only";
+      extra?: Record<string, any>; name?: string;
+      sessionId?: string; sessionSign?: string;
+    };
+    if (!body?.source) return c.json({ error: "source required" }, 400);
+    if (!body?.mode) return c.json({ error: "mode required" }, 400);
+    const r = await requirePineCtx(c, body, { writeOp: true });
+    if ("error" in r) return r.error;
+    const result = await publishPineScript(r.ctx, body);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine publish failed");
+  }
+});
+
+app.post("/v1/pine/delete", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as { id: string; sessionId?: string; sessionSign?: string };
+    if (!body?.id) return c.json({ error: "id required" }, 400);
+    const r = await requirePineCtx(c, body, { writeOp: true });
+    if ("error" in r) return r.error;
+    const result = await deletePineScript(r.ctx, body.id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine delete failed");
+  }
+});
+
+app.post("/v1/pine/rename", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      id: string; name: string; force?: boolean;
+      sessionId?: string; sessionSign?: string;
+    };
+    if (!body?.id) return c.json({ error: "id required" }, 400);
+    if (!body?.name) return c.json({ error: "name required" }, 400);
+    const r = await requirePineCtx(c, body, { writeOp: true });
+    if ("error" in r) return r.error;
+    const result = await renamePineScript(r.ctx, body);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine rename failed");
+  }
+});
+
+app.post("/v1/pine/copy", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as { id: string; name?: string; sessionId?: string; sessionSign?: string };
+    if (!body?.id) return c.json({ error: "id required" }, 400);
+    const r = await requirePineCtx(c, body, { writeOp: true });
+    if ("error" in r) return r.error;
+    const result = await copyPineScript(r.ctx, body);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine copy failed");
+  }
+});
+
+app.post("/v1/pine/convert", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      source: string; version_to: string;
+      sessionId?: string; sessionSign?: string;
+    };
+    if (!body?.source) return c.json({ error: "source required" }, 400);
+    if (!body?.version_to) return c.json({ error: "version_to required" }, 400);
+    const r = await requirePineCtx(c, body, { writeOp: true });
+    if ("error" in r) return r.error;
+    const result = await convertPineScript(r.ctx, body);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine convert failed");
+  }
+});
+
+app.post("/v1/pine/parse-title", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as { source: string; sessionId?: string; sessionSign?: string };
+    if (!body?.source) return c.json({ error: "source required" }, 400);
+    const r = await requirePineCtx(c, body, { writeOp: true });
+    if ("error" in r) return r.error;
+    const result = await parsePineTitle(r.ctx, body.source);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine parse-title failed");
+  }
+});
+
+app.get("/v1/pine/translate-light", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const url = new URL(c.req.url);
+    const id = url.searchParams.get("id");
+    const version = url.searchParams.get("version");
+    if (!id) return c.json({ error: "id required" }, 400);
+    if (!version) return c.json({ error: "version required" }, 400);
+    const r = await requirePineCtx(c, {});
+    if ("error" in r) return r.error;
+    const result = await translateLightSource(r.ctx, id, version);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine translate-light failed");
+  }
+});
+
+app.post("/v1/pine/gen-alert", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      source?: string; alert_info?: any; inputs?: Record<string, any>;
+      sessionId?: string; sessionSign?: string;
+    };
+    const r = await requirePineCtx(c, body, { writeOp: true });
+    if ("error" in r) return r.error;
+    const result = await genPineAlert(r.ctx, body);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine gen-alert failed");
+  }
+});
+
+// === P14 options (tradingview-nh9) ===================================
+const parseRange = (raw: string | null): [number, number] | undefined => {
+  if (!raw) return undefined;
+  try {
+    const v = JSON.parse(raw);
+    if (Array.isArray(v) && v.length === 2 && v.every((n) => Number.isFinite(n))) {
+      return [Number(v[0]), Number(v[1])];
+    }
+  } catch {}
+  return undefined;
+};
+
+const optionsRouteError = (c: any, err: unknown) => {
+  if (err instanceof OptionsValidationError) {
+    return c.json({ error: err.message, category: "bad_request", retryable: false }, 400);
+  }
+  return routeError(c, err, "options error");
+};
+
+app.get("/v1/options/iv/:symbol", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  try {
+    const session = await resolveSession(c.env.CACHE_META);
+    const out = await getInTimeIv({
+      symbol: c.req.param("symbol"),
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...out, authSource: session.source });
+  } catch (err) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return optionsRouteError(c, err);
+  }
+});
+
+app.get("/v1/options/volatility-chart/:symbol", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  try {
+    const url = new URL(c.req.url);
+    const session = await resolveSession(c.env.CACHE_META);
+    const out = await getVolatilityChart({
+      symbol: c.req.param("symbol"),
+      root: url.searchParams.get("root") || undefined,
+      expiry: url.searchParams.get("expiry") || "",
+      xaxis: url.searchParams.get("xaxis") || "",
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...out, authSource: session.source });
+  } catch (err) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return optionsRouteError(c, err);
+  }
+});
+
+app.get("/v1/options/expiries/:symbol", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  try {
+    const url = new URL(c.req.url);
+    const session = await resolveSession(c.env.CACHE_META);
+    const out = await getExpiries({
+      symbol: c.req.param("symbol"),
+      range: parseRange(url.searchParams.get("range")),
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...out, authSource: session.source });
+  } catch (err) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return optionsRouteError(c, err);
+  }
+});
+
+app.get("/v1/options/strikes/:symbol", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  try {
+    const url = new URL(c.req.url);
+    const session = await resolveSession(c.env.CACHE_META);
+    const out = await getStrikes({
+      symbol: c.req.param("symbol"),
+      expiry: url.searchParams.get("expiry") || undefined,
+      range: parseRange(url.searchParams.get("range")),
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...out, authSource: session.source });
+  } catch (err) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return optionsRouteError(c, err);
+  }
+});
+
+app.get("/v1/options/chain/:symbol", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  try {
+    const url = new URL(c.req.url);
+    const typeRaw = url.searchParams.get("type");
+    const type =
+      typeRaw === "call" || typeRaw === "put" || typeRaw === "both" ? typeRaw : undefined;
+    const session = await resolveSession(c.env.CACHE_META);
+    const out = await getOptionsChain({
+      symbol: c.req.param("symbol"),
+      expiry: url.searchParams.get("expiry") || undefined,
+      type,
+      range: parseRange(url.searchParams.get("range")),
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...out, authSource: session.source });
+  } catch (err) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return optionsRouteError(c, err);
+  }
+});
+
+app.get("/v1/options/greeks/:contractSymbol", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  try {
+    const session = await resolveSession(c.env.CACHE_META);
+    const out = await getGreeks({
+      contractSymbol: c.req.param("contractSymbol"),
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...out, authSource: session.source });
+  } catch (err) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return optionsRouteError(c, err);
+  }
+});
+
+app.post("/v1/options/scan", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  try {
+    const body = (await c.req.json()) as Parameters<typeof scanOptions>[0];
+    const session = await resolveSession(c.env.CACHE_META);
+    const out = await scanOptions({
+      ...body,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...out, authSource: session.source });
+  } catch (err) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return optionsRouteError(c, err);
+  }
+});
+
+app.get("/v1/options/metainfo", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  try {
+    const session = await resolveSession(c.env.CACHE_META);
+    const out = await getOptionsMetainfo({
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ...out, authSource: session.source });
+  } catch (err) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return optionsRouteError(c, err);
+  }
+});
+
+// === P15 scanner-v2 (tradingview-rfy) ================================
+app.post("/v1/scan2", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as Scan2Request;
+    const result = await scanV2(body);
+    return c.json(result);
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.post("/v1/screener/metainfo", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as { market?: string; labelProduct?: string };
+    if (!body?.market) return c.json({ error: "market required" }, 400);
+    const { value, cached } = await screenerMetainfo(body.market, {
+      labelProduct: body.labelProduct,
+      cache: c.env.CACHE_META,
+    });
+    return c.json({ metainfo: value, cached });
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.get("/v1/screener/enum", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const ids = c.req.query("ids");
+    if (!ids) return c.json({ error: "ids required" }, 400);
+    const { value, cached } = await getOrderedEnum(ids, {
+      lang: c.req.query("lang") || undefined,
+      labelProduct: c.req.query("labelProduct") || undefined,
+      cache: c.env.CACHE_META,
+    });
+    return c.json({ enum: value, cached });
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.get("/v1/screener/columns", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const version = c.req.query("version");
+    const { value, cached } = await getColumnCatalog(version, { cache: c.env.CACHE_META });
+    return c.json({ catalog: value, cached });
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.get("/v1/screener/markets", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    return c.json(listScannerMarkets());
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.get("/v1/screener/symbol", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const symbol = c.req.query("symbol");
+    const fields = c.req.query("fields");
+    if (!symbol) return c.json({ error: "symbol required" }, 400);
+    if (!fields) return c.json({ error: "fields required" }, 400);
+    const data = await getSymbolFields({
+      symbol,
+      fields: fields.split(",").map((s) => s.trim()).filter(Boolean),
+      no_404: c.req.query("no_404") === "true",
+      labelProduct: c.req.query("labelProduct") || undefined,
+    });
+    return c.json({ data });
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+// === P16 news-mediator + calendar (tradingview-fn9) ==================
+app.get("/v1/news/symbol", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const url = new URL(c.req.url);
+    const symbol = url.searchParams.get("symbol");
+    if (!symbol) return c.json({ error: "symbol required" }, 400);
+    const out = await getSymbolNews({
+      symbol,
+      lang: url.searchParams.get("lang") || undefined,
+      client: url.searchParams.get("client") || undefined,
+      streaming: url.searchParams.get("streaming") === "true",
+      cursor: url.searchParams.get("cursor") || undefined,
+    });
+    return c.json(out);
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.get("/v1/news/symbol-view", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const url = new URL(c.req.url);
+    const symbol = url.searchParams.get("symbol");
+    if (!symbol) return c.json({ error: "symbol required" }, 400);
+    const out = await getSymbolNewsView({
+      symbol,
+      lang: url.searchParams.get("lang") || undefined,
+      client: url.searchParams.get("client") || undefined,
+    });
+    return c.json(out);
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.get("/v1/news/category", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const url = new URL(c.req.url);
+    const out = await getCategoryNews({
+      market: url.searchParams.get("market") || undefined,
+      country: url.searchParams.get("country") || undefined,
+      tag: url.searchParams.get("tag") || undefined,
+      priority: url.searchParams.get("priority") || undefined,
+      symbol: url.searchParams.get("symbol") || undefined,
+      lang: url.searchParams.get("lang") || undefined,
+      client: url.searchParams.get("client") || undefined,
+      streaming: url.searchParams.get("streaming") === "true",
+      cursor: url.searchParams.get("cursor") || undefined,
+    });
+    return c.json(out);
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.get("/v1/news/story", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const url = new URL(c.req.url);
+    const id = url.searchParams.get("id");
+    if (!id) return c.json({ error: "id required" }, 400);
+    const out = await getStoryJson({ id, lang: url.searchParams.get("lang") || undefined });
+    return c.json(out);
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.get("/v1/calendar/events", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const url = new URL(c.req.url);
+    const minImportanceRaw = url.searchParams.get("minImportance");
+    const out = await getEconomicEvents({
+      from: url.searchParams.get("from") || undefined,
+      to: url.searchParams.get("to") || undefined,
+      countries: url.searchParams.get("countries")?.split(",").map((s) => s.trim()).filter(Boolean),
+      minImportance: minImportanceRaw != null ? Number(minImportanceRaw) : undefined,
+    });
+    return c.json(out);
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.post("/v1/calendar/ipos", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      from?: number;
+      to?: number;
+      countries?: string[];
+      markets?: string[];
+      fields?: string[];
+    };
+    const out = await getIposCalendar(body);
+    return c.json(out);
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.post("/v1/calendar/splits", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      from?: number;
+      to?: number;
+      markets?: string[];
+      fields?: string[];
+    };
+    const out = await getSplitsCalendar(body);
+    return c.json(out);
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+// === P18 stream bridge (tradingview-zkz) =============================
+const forwardToStreamBridge = async (
+  c: any,
+  subPath: string,
+  body: any,
+  sessionToken: string,
+  init?: RequestInit,
+): Promise<Response> => {
+  const ns = (c.env as any).STREAM_BRIDGE as {
+    idFromName: (name: string) => any;
+    get: (id: any) => { fetch: (url: string, init?: RequestInit) => Promise<Response> };
+  };
+  const id = ns.idFromName(sessionToken);
+  const stub = ns.get(id);
+  const req: RequestInit = init ?? {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  };
+  return stub.fetch(`https://stream-bridge.internal${subPath}`, req);
+};
+
+const requireStreamSessionToken = (raw: string | null): string | Response => {
+  if (!raw) {
+    return Response.json({ error: "sessionToken (string) required" }, { status: 400 });
+  }
+  return raw;
+};
+
+app.get("/v1/stream/alerts", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const tokenOrErr = requireStreamSessionToken(c.req.query("sessionToken") ?? null);
+  if (typeof tokenOrErr !== "string") return tokenOrErr;
+  const session = await resolveSession(c.env.CACHE_META, {});
+  await forwardToStreamBridge(c, "/subscribe-alerts", {
+    sessionId: session.sessionId,
+    sessionSign: session.sessionSign,
+    privateChannel: (session as any).privateChannel,
+    includePublic: true,
+  }, tokenOrErr);
+  return forwardToStreamBridge(c, "/sse", null, tokenOrErr, {
+    method: "GET",
+    headers: { accept: "text/event-stream" },
+  });
+});
+
+app.get("/v1/stream/news", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const tokenOrErr = requireStreamSessionToken(c.req.query("sessionToken") ?? null);
+  if (typeof tokenOrErr !== "string") return tokenOrErr;
+  const session = await resolveSession(c.env.CACHE_META, {});
+  const symbolsCsv = c.req.query("symbols");
+  const symbols = symbolsCsv ? symbolsCsv.split(",").map((s: string) => s.trim()).filter(Boolean) : undefined;
+  await forwardToStreamBridge(c, "/subscribe-news", {
+    sessionId: session.sessionId,
+    sessionSign: session.sessionSign,
+    symbols,
+  }, tokenOrErr);
+  return forwardToStreamBridge(c, "/sse", null, tokenOrErr, {
+    method: "GET",
+    headers: { accept: "text/event-stream" },
+  });
+});
+
+app.get("/v1/stream/notifications", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const tokenOrErr = requireStreamSessionToken(c.req.query("sessionToken") ?? null);
+  if (typeof tokenOrErr !== "string") return tokenOrErr;
+  const session = await resolveSession(c.env.CACHE_META, {});
+  await forwardToStreamBridge(c, "/subscribe-news", {
+    sessionId: session.sessionId,
+    sessionSign: session.sessionSign,
+  }, tokenOrErr);
+  return forwardToStreamBridge(c, "/sse", null, tokenOrErr, {
+    method: "GET",
+    headers: { accept: "text/event-stream" },
+  });
+});
+
+app.post("/v1/stream/alerts/poll", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const body = (await c.req.json()) as { sessionToken?: string; since?: string; limit?: number };
+  const tokenOrErr = requireStreamSessionToken(body?.sessionToken ?? null);
+  if (typeof tokenOrErr !== "string") return tokenOrErr;
+  return forwardToStreamBridge(c, "/poll", { since: body.since, limit: body.limit, channel: "alerts" }, tokenOrErr);
+});
+
+app.post("/v1/stream/news/poll", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const body = (await c.req.json()) as { sessionToken?: string; since?: string; limit?: number };
+  const tokenOrErr = requireStreamSessionToken(body?.sessionToken ?? null);
+  if (typeof tokenOrErr !== "string") return tokenOrErr;
+  return forwardToStreamBridge(c, "/poll", { since: body.since, limit: body.limit, channel: "news" }, tokenOrErr);
+});
+
+// === P19 line-tools (tradingview-34p) ================================
+app.post("/v1/line-tools/tools", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    return c.json({ result: listLineTools() });
+  } catch (err: any) {
+    return routeError(c, err, "line-tools tools failed");
+  }
+});
+
+app.post("/v1/line-tools/templates/list", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      tool: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.tool) return c.json({ error: "tool required" }, 400);
+    if (!isDrawingTool(body.tool)) return c.json({ error: `unknown drawing tool: ${body.tool}` }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await listLineToolTemplates(r.ctx, body.tool);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "line-tools templates list failed");
+  }
+});
+
+app.post("/v1/line-tools/templates/load", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      tool: string;
+      templateName: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.tool || !body?.templateName) {
+      return c.json({ error: "tool and templateName required" }, 400);
+    }
+    if (!isDrawingTool(body.tool)) return c.json({ error: `unknown drawing tool: ${body.tool}` }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await loadLineToolTemplate(r.ctx, body.tool, body.templateName);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "line-tools template load failed");
+  }
+});
+
+app.post("/v1/line-tools/templates/save", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      tool: string;
+      name: string;
+      content: any;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.tool || !body?.name) return c.json({ error: "tool and name required" }, 400);
+    if (!isDrawingTool(body.tool)) return c.json({ error: `unknown drawing tool: ${body.tool}` }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await saveLineToolTemplate(r.ctx, {
+      tool: body.tool,
+      name: body.name,
+      content: body.content,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "line-tools template save failed");
+  }
+});
+
+app.post("/v1/line-tools/templates/delete", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      tool: string;
+      name: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.tool || !body?.name) return c.json({ error: "tool and name required" }, 400);
+    if (!isDrawingTool(body.tool)) return c.json({ error: `unknown drawing tool: ${body.tool}` }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await deleteLineToolTemplate(r.ctx, body.tool, body.name);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "line-tools template delete failed");
+  }
+});
+
+// === P20 www.tradingview.com REST surfaces (tradingview-lol) =========
+app.post("/v1/symbol/resolve", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      q: string;
+      hl?: boolean;
+      exchange?: string;
+      type?: string;
+      lang?: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.q) return c.json({ error: "q required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await wwwResolveSymbol({
+      q: body.q,
+      hl: body.hl,
+      exchange: body.exchange,
+      type: body.type,
+      lang: body.lang,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    if (session.sessionId) await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "symbol resolve failed");
+  }
+});
+
+app.post("/v1/symbol/resolve-batch", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      queries: Array<string | { q: string; hl?: boolean; exchange?: string }>;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!Array.isArray(body?.queries) || body.queries.length === 0) {
+      return c.json({ error: "queries array required" }, 400);
+    }
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await resolveSymbolBatch(
+      { sessionId: session.sessionId, sessionSign: session.sessionSign },
+      body.queries,
+    );
+    if (session.sessionId) await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "symbol resolve-batch failed");
+  }
+});
+
+app.post("/v1/study-templates/standard", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await listStudyTemplatesStandard({
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    if (session.sessionId) await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "study-templates standard failed");
+  }
+});
+
+app.post("/v1/ideas/feed", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      symbol?: string;
+      sort?: "recent" | "popular";
+      offset?: number;
+      count?: number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await getIdeasFeed({
+      symbol: body.symbol,
+      sort: body.sort,
+      offset: body.offset,
+      count: body.count,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    if (session.sessionId) await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "ideas feed failed");
+  }
+});
+
+app.post("/v1/social/tweet", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as { id: string };
+    if (!body?.id) return c.json({ error: "id required" }, 400);
+    const result = await getTweetData(body.id);
+    return c.json({ result });
+  } catch (err: any) {
+    return routeError(c, err, "tweet data failed");
+  }
+});
+
+app.post("/v1/chats/public", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      limit?: number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await getPublicChats(
+      { sessionId: session.sessionId, sessionSign: session.sessionSign },
+      body.limit,
+    );
+    if (session.sessionId) await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "chats public failed");
+  }
+});
+
+app.post("/v1/chats/dm", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      limit?: number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    if (!session.sessionId) {
+      return c.json({ error: "sessionId required (DM list is admin-only)" }, 400);
+    }
+    const result = await getDmChats(
+      { sessionId: session.sessionId, sessionSign: session.sessionSign },
+      body.limit,
+    );
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "chats dm failed");
+  }
+});
+
+app.post("/v1/conversation-status", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      room_id: string | number;
+      offset?: number;
+      stat_symbol?: string;
+      stat_interval?: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (body?.room_id == null || body.room_id === "") {
+      return c.json({ error: "room_id required" }, 400);
+    }
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await getConversationStatus({
+      room_id: body.room_id,
+      offset: body.offset,
+      stat_symbol: body.stat_symbol,
+      stat_interval: body.stat_interval,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    if (session.sessionId) await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "conversation status failed");
+  }
+});
+
+app.post("/v1/financial/fundamentals-config", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      forceRefresh?: boolean;
+      cacheTtlSeconds?: number;
+    };
+    const result = await getFundamentalsConfig({
+      cache: c.env.CACHE_META,
+      cacheTtlSeconds: body.cacheTtlSeconds,
+      forceRefresh: body.forceRefresh,
+    });
+    return c.json({ result });
+  } catch (err: any) {
+    return routeError(c, err, "fundamentals-config failed");
+  }
+});
+
+app.post("/v1/support/i18n", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      language?: string;
+      forceRefresh?: boolean;
+      cacheTtlSeconds?: number;
+    };
+    const result = await getSupportI18n({
+      language: body.language,
+      cache: c.env.CACHE_META,
+      cacheTtlSeconds: body.cacheTtlSeconds,
+      forceRefresh: body.forceRefresh,
+    });
+    return c.json({ result });
+  } catch (err: any) {
+    return routeError(c, err, "support i18n failed");
+  }
+});
+
+app.post("/v1/brokers/trading-panel", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await getBrokerPanel({
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    if (session.sessionId) await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "brokers trading-panel failed");
+  }
+});
+
+app.post("/v1/user/profile", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      update?: boolean;
+      fields?: Record<string, string>;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    if (!session.sessionId) return c.json({ error: "sessionId required" }, 400);
+    const result = body.update
+      ? await wwwUpdateUserProfile({
+          ctx: { sessionId: session.sessionId, sessionSign: session.sessionSign },
+          fields: body.fields ?? {},
+        })
+      : await wwwGetUserProfile({
+          sessionId: session.sessionId,
+          sessionSign: session.sessionSign,
+        });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "user profile failed");
+  }
+});
+
+// === P21 user-prefs / TVSettings (tradingview-c7d) ===================
+app.post("/v1/user-prefs/favorites/indicators/list", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await listFavoriteIndicators(r.ctx);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "favorite-indicators list failed");
+  }
+});
+
+app.post("/v1/user-prefs/favorites/indicators/add", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      id: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.id) return c.json({ error: "id required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await addFavoriteIndicator(r.ctx, body.id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "favorite-indicators add failed");
+  }
+});
+
+app.post("/v1/user-prefs/favorites/indicators/remove", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      id: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.id) return c.json({ error: "id required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await removeFavoriteIndicator(r.ctx, body.id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "favorite-indicators remove failed");
+  }
+});
+
+app.post("/v1/user-prefs/favorites/drawings/list", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await listFavoriteDrawings(r.ctx);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "favorite-drawings list failed");
+  }
+});
+
+app.post("/v1/user-prefs/favorites/drawings/add", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      id: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.id) return c.json({ error: "id required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await addFavoriteDrawing(r.ctx, body.id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "favorite-drawings add failed");
+  }
+});
+
+app.post("/v1/user-prefs/favorites/drawings/remove", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      id: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.id) return c.json({ error: "id required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await removeFavoriteDrawing(r.ctx, body.id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "favorite-drawings remove failed");
+  }
+});
+
+app.post("/v1/user-prefs/recents/study-templates/list", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await listRecentStudyTemplates(r.ctx);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "recents list failed");
+  }
+});
+
+app.post("/v1/user-prefs/recents/study-templates/add", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      id: string | number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (body?.id == null) return c.json({ error: "id required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await addRecentStudyTemplate(r.ctx, body.id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "recents add failed");
+  }
+});
+
+app.post("/v1/user-prefs/saved-screens/list", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await listSavedScreens(r.ctx);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "saved-screens list failed");
+  }
+});
+
+app.post("/v1/user-prefs/saved-screens/save", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      name: string;
+      market?: string;
+      columns?: string[];
+      filter?: any;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.name) return c.json({ error: "name required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await saveScreen(r.ctx, {
+      name: body.name,
+      market: body.market,
+      columns: body.columns,
+      filter: body.filter,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "saved-screens save failed");
+  }
+});
+
+app.post("/v1/user-prefs/saved-screens/delete", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      name: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.name) return c.json({ error: "name required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await deleteSavedScreen(r.ctx, body.name);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "saved-screens delete failed");
+  }
+});
+
+app.post("/v1/user-prefs/raw", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await getRawPrefs(r.ctx);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "user-prefs raw failed");
+  }
+});
+
+// Module-level marker to retain ws-verbs/ws-events imports after tree-shaking.
+// P17 stateless route surface deferred (see tradingview-aau): chart-session DO
+// sub-routes (/quality, /timezone, /series/*, /pointset/*, etc.) not yet wired,
+// so live HTTP routes would 404. The wsVerbs/wsEvents helpers remain exported
+// for unit tests and direct import by future DO sub-route handlers.
+export const __ws_protocol_module_handle = { wsVerbs, wsEvents } as const;
+
 export default app;
 export { FetchCoordinator };
 export { ChartSession } from "./chart-session-do";
+export { StreamBridge } from "./stream-do";
 
 // Scheduled snapshot (cron)
 export const scheduled: ExportedHandlerScheduledHandler<CloudflareBindings> = async (

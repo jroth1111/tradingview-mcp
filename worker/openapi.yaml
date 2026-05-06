@@ -466,3 +466,359 @@ paths:
     post:
       summary: Tear down a chart session and release the upstream WebSocket.
       responses: { "200": { description: Chart session closed. } }
+  /v1/charts/list:
+    post:
+      summary: List saved chart layouts for the active session.
+      responses: { "200": { description: Saved chart layouts for the active session. } }
+  /v1/charts/token:
+    post:
+      summary: Mint a chart token for an existing layout.
+      responses: { "200": { description: Mint a chart token for an existing layout. } }
+  /v1/charts/layout:
+    post:
+      summary: Get a single chart layout by id.
+      responses: { "200": { description: A single chart layout by id. } }
+  /v1/charts/layout/user:
+    post:
+      summary: Get user-defined chart sources (custom symbols).
+      responses: { "200": { description: User-defined chart sources (custom symbols). } }
+  /v1/charts/layout/save:
+    post:
+      summary: Save a chart layout (create or overwrite).
+      responses: { "200": { description: Save a chart layout (create or overwrite). } }
+  /v1/charts/layout/delete:
+    post:
+      summary: Delete a chart layout.
+      responses: { "200": { description: Delete a chart layout. } }
+  /v1/charts/layout/copy:
+    post:
+      summary: Copy a chart layout into a new one.
+      responses: { "200": { description: Copy a chart layout into a new one. } }
+  /v1/charts/layout/move:
+    post:
+      summary: Rename or move a chart layout.
+      responses: { "200": { description: Rename or move a chart layout. } }
+  /v1/watchlists/list:
+    get:
+      summary: List watchlists for the active session.
+      responses: { "200": { description: Watchlists for the active session. } }
+  /v1/watchlists/get/{id}:
+    get:
+      summary: Get a watchlist by id.
+      responses: { "200": { description: A watchlist by id. } }
+  /v1/watchlists/create:
+    post:
+      summary: Create a new watchlist.
+      responses: { "200": { description: Create a new watchlist. } }
+  /v1/watchlists/delete/{id}:
+    post:
+      summary: Delete a watchlist.
+      responses: { "200": { description: Delete a watchlist. } }
+  /v1/watchlists/append/{id}:
+    post:
+      summary: Append symbols to a watchlist.
+      responses: { "200": { description: Append symbols to a watchlist. } }
+  /v1/watchlists/remove-symbols/{id}:
+    post:
+      summary: Remove symbols from a watchlist.
+      responses: { "200": { description: Remove symbols from a watchlist. } }
+  /v1/watchlists/replace/{id}:
+    post:
+      summary: Replace the entire symbol set of a watchlist.
+      responses: { "200": { description: Replace the entire symbol set of a watchlist. } }
+  /v1/watchlists/rename/{id}:
+    post:
+      summary: Rename a watchlist.
+      responses: { "200": { description: Rename a watchlist. } }
+  /v1/watchlists/update-meta/{id}:
+    post:
+      summary: Update watchlist metadata.
+      responses: { "200": { description: Update watchlist metadata. } }
+  /v1/watchlists/replace-symbol:
+    post:
+      summary: Replace a symbol in a watchlist.
+      responses: { "200": { description: Replace a symbol in a watchlist. } }
+  /v1/watchlists/active:
+    get:
+      summary: Get the active watchlist id.
+      responses: { "200": { description: Active watchlist id. } }
+  /v1/watchlists/active/{id}:
+    post:
+      summary: Set the active watchlist id.
+      responses: { "200": { description: Set the active watchlist id. } }
+  /v1/pine/script-info:
+    get:
+      summary: Get Pine script metadata for a script id.
+      responses: { "200": { description: Pine script metadata for a script id. } }
+  /v1/pine/versions:
+    get:
+      summary: Get the latest version of a Pine script.
+      responses: { "200": { description: Latest version of a Pine script. } }
+  /v1/pine/versions-all:
+    get:
+      summary: Get all versions of a Pine script.
+      responses: { "200": { description: All versions of a Pine script. } }
+  /v1/pine/auth:
+    get:
+      summary: Check whether the session can read a specific Pine script version.
+      responses: { "200": { description: Check whether the session can read a specific Pine script version. } }
+  /v1/pine/list:
+    get:
+      summary: List Pine scripts owned by the session, filtered by category.
+      responses: { "200": { description: Pine scripts owned by the session, filtered by category. } }
+  /v1/pine/save:
+    post:
+      summary: Save a Pine script (new, next, draft).
+      responses: { "200": { description: Save a Pine script (new, next, draft). } }
+  /v1/pine/publish:
+    post:
+      summary: Publish a Pine script.
+      responses: { "200": { description: Publish a Pine script. } }
+  /v1/pine/delete:
+    post:
+      summary: Delete a Pine script.
+      responses: { "200": { description: Delete a Pine script. } }
+  /v1/pine/rename:
+    post:
+      summary: Rename a Pine script.
+      responses: { "200": { description: Rename a Pine script. } }
+  /v1/pine/copy:
+    post:
+      summary: Copy a Pine script.
+      responses: { "200": { description: Copy a Pine script. } }
+  /v1/pine/convert:
+    post:
+      summary: Convert a Pine script to a newer language version.
+      responses: { "200": { description: Convert a Pine script to a newer language version. } }
+  /v1/pine/parse-title:
+    post:
+      summary: Parse a Pine script title block.
+      responses: { "200": { description: Parse a Pine script title block. } }
+  /v1/pine/translate-light:
+    get:
+      summary: Translate the lightweight Pine source representation.
+      responses: { "200": { description: Translate the lightweight Pine source representation. } }
+  /v1/pine/gen-alert:
+    post:
+      summary: Generate an alert payload for a Pine alert.
+      responses: { "200": { description: Generate an alert payload for a Pine alert. } }
+  /v1/options/iv/{symbol}:
+    get:
+      summary: Get implied volatility timeseries for an underlying.
+      responses: { "200": { description: Implied volatility timeseries for an underlying. } }
+  /v1/options/volatility-chart/{symbol}:
+    get:
+      summary: Get the volatility surface chart for an underlying.
+      responses: { "200": { description: Volatility surface chart for an underlying. } }
+  /v1/options/expiries/{symbol}:
+    get:
+      summary: List option expiries for an underlying.
+      responses: { "200": { description: Option expiries for an underlying. } }
+  /v1/options/strikes/{symbol}:
+    get:
+      summary: List option strikes for an underlying.
+      responses: { "200": { description: Option strikes for an underlying. } }
+  /v1/options/chain/{symbol}:
+    get:
+      summary: Get the full options chain for an underlying.
+      responses: { "200": { description: Full options chain for an underlying. } }
+  /v1/options/greeks/{contractSymbol}:
+    get:
+      summary: Get greeks for a single option contract.
+      responses: { "200": { description: Greeks for a single option contract. } }
+  /v1/options/scan:
+    post:
+      summary: Scan options across one or more underlyings.
+      responses: { "200": { description: Scan options across one or more underlyings. } }
+  /v1/options/metainfo:
+    get:
+      summary: Get options screener metainfo.
+      responses: { "200": { description: Options screener metainfo. } }
+  /v1/scan2:
+    post:
+      summary: Run a Scanner v2 (filter2) query.
+      responses: { "200": { description: Run a Scanner v2 (filter2) query. } }
+  /v1/screener/metainfo:
+    post:
+      summary: Get scanner metainfo for a market.
+      responses: { "200": { description: Scanner metainfo for a market. } }
+  /v1/screener/enum:
+    get:
+      summary: Get an ordered enum used by scanner filters.
+      responses: { "200": { description: An ordered enum used by scanner filters. } }
+  /v1/screener/columns:
+    get:
+      summary: List the column catalog for a scanner market.
+      responses: { "200": { description: Column catalog for a scanner market. } }
+  /v1/screener/markets:
+    get:
+      summary: List supported scanner markets.
+      responses: { "200": { description: Supported scanner markets. } }
+  /v1/screener/symbol:
+    get:
+      summary: Get scanner field values for a single symbol.
+      responses: { "200": { description: Scanner field values for a single symbol. } }
+  /v1/news/symbol:
+    get:
+      summary: Fetch news headlines for a symbol.
+      responses: { "200": { description: News headlines for a symbol. } }
+  /v1/news/symbol-view:
+    get:
+      summary: Fetch the rendered symbol news view.
+      responses: { "200": { description: Rendered symbol news view. } }
+  /v1/news/category:
+    get:
+      summary: Fetch news headlines for a category.
+      responses: { "200": { description: News headlines for a category. } }
+  /v1/news/story:
+    get:
+      summary: Fetch a news story by id.
+      responses: { "200": { description: A news story by id. } }
+  /v1/calendar/events:
+    get:
+      summary: Fetch economic calendar events for a window.
+      responses: { "200": { description: Economic calendar events for a window. } }
+  /v1/calendar/ipos:
+    post:
+      summary: Fetch the IPO calendar.
+      responses: { "200": { description: IPO calendar. } }
+  /v1/calendar/splits:
+    post:
+      summary: Fetch the splits calendar.
+      responses: { "200": { description: Splits calendar. } }
+  /v1/stream/alerts:
+    get:
+      summary: Subscribe to price-alert events via SSE (StreamBridge DO).
+      responses: { "200": { description: Subscribe to price-alert events via SSE (StreamBridge DO). } }
+  /v1/stream/news:
+    get:
+      summary: Subscribe to news events via SSE (StreamBridge DO).
+      responses: { "200": { description: Subscribe to news events via SSE (StreamBridge DO). } }
+  /v1/stream/notifications:
+    get:
+      summary: Subscribe to user notification events via SSE (StreamBridge DO).
+      responses: { "200": { description: Subscribe to user notification events via SSE (StreamBridge DO). } }
+  /v1/stream/alerts/poll:
+    post:
+      summary: Poll the StreamBridge ring buffer for alert events since a cursor.
+      responses: { "200": { description: Poll the StreamBridge ring buffer for alert events since a cursor. } }
+  /v1/stream/news/poll:
+    post:
+      summary: Poll the StreamBridge ring buffer for news events since a cursor.
+      responses: { "200": { description: Poll the StreamBridge ring buffer for news events since a cursor. } }
+  /v1/line-tools/tools:
+    post:
+      summary: List supported drawing tool ids.
+      responses: { "200": { description: Supported drawing tool ids. } }
+  /v1/line-tools/templates/list:
+    post:
+      summary: List drawing-tool templates for a tool.
+      responses: { "200": { description: Drawing-tool templates for a tool. } }
+  /v1/line-tools/templates/load:
+    post:
+      summary: Load a drawing-tool template by name.
+      responses: { "200": { description: Load a drawing-tool template by name. } }
+  /v1/line-tools/templates/save:
+    post:
+      summary: Save a drawing-tool template.
+      responses: { "200": { description: Save a drawing-tool template. } }
+  /v1/line-tools/templates/delete:
+    post:
+      summary: Delete a drawing-tool template.
+      responses: { "200": { description: Delete a drawing-tool template. } }
+  /v1/symbol/resolve:
+    post:
+      summary: Resolve a symbol query via the www.tradingview.com REST surface.
+      responses: { "200": { description: Resolve a symbol query via the www.tradingview.com REST surface. } }
+  /v1/symbol/resolve-batch:
+    post:
+      summary: Resolve multiple symbol queries in one call.
+      responses: { "200": { description: Resolve multiple symbol queries in one call. } }
+  /v1/study-templates/standard:
+    post:
+      summary: List the standard (built-in) study templates.
+      responses: { "200": { description: Standard (built-in) study templates. } }
+  /v1/ideas/feed:
+    post:
+      summary: Fetch the ideas feed for a symbol.
+      responses: { "200": { description: Ideas feed for a symbol. } }
+  /v1/social/tweet:
+    post:
+      summary: Get tweet data by id (TradingView social cache).
+      responses: { "200": { description: Tweet data by id (TradingView social cache). } }
+  /v1/chats/public:
+    post:
+      summary: List public TradingView chat rooms.
+      responses: { "200": { description: Public TradingView chat rooms. } }
+  /v1/chats/dm:
+    post:
+      summary: List the active session's direct-message chats.
+      responses: { "200": { description: Active session's direct-message chats. } }
+  /v1/conversation-status:
+    post:
+      summary: Get conversation status for a chat room.
+      responses: { "200": { description: Conversation status for a chat room. } }
+  /v1/financial/fundamentals-config:
+    post:
+      summary: Get fundamentals config (KV-cached).
+      responses: { "200": { description: Fundamentals config (KV-cached). } }
+  /v1/support/i18n:
+    post:
+      summary: Get TradingView support i18n strings.
+      responses: { "200": { description: TradingView support i18n strings. } }
+  /v1/brokers/trading-panel:
+    post:
+      summary: Get the TradingView trading-panel broker config.
+      responses: { "200": { description: TradingView trading-panel broker config. } }
+  /v1/user/profile:
+    post:
+      summary: Get or update the active session user profile (www.tradingview.com).
+      responses: { "200": { description: Or update the active session user profile (www.tradingview.com). } }
+  /v1/user-prefs/favorites/indicators/list:
+    post:
+      summary: List favorited indicators.
+      responses: { "200": { description: Favorited indicators. } }
+  /v1/user-prefs/favorites/indicators/add:
+    post:
+      summary: Add a favorite indicator.
+      responses: { "200": { description: Add a favorite indicator. } }
+  /v1/user-prefs/favorites/indicators/remove:
+    post:
+      summary: Remove a favorite indicator.
+      responses: { "200": { description: Remove a favorite indicator. } }
+  /v1/user-prefs/favorites/drawings/list:
+    post:
+      summary: List favorited drawings.
+      responses: { "200": { description: Favorited drawings. } }
+  /v1/user-prefs/favorites/drawings/add:
+    post:
+      summary: Add a favorite drawing.
+      responses: { "200": { description: Add a favorite drawing. } }
+  /v1/user-prefs/favorites/drawings/remove:
+    post:
+      summary: Remove a favorite drawing.
+      responses: { "200": { description: Remove a favorite drawing. } }
+  /v1/user-prefs/recents/study-templates/list:
+    post:
+      summary: List recently used study templates.
+      responses: { "200": { description: Recently used study templates. } }
+  /v1/user-prefs/recents/study-templates/add:
+    post:
+      summary: Push a study template onto the recents list.
+      responses: { "200": { description: Push a study template onto the recents list. } }
+  /v1/user-prefs/saved-screens/list:
+    post:
+      summary: List saved screener screens.
+      responses: { "200": { description: Saved screener screens. } }
+  /v1/user-prefs/saved-screens/save:
+    post:
+      summary: Save (or overwrite) a screener screen.
+      responses: { "200": { description: Save (or overwrite) a screener screen. } }
+  /v1/user-prefs/saved-screens/delete:
+    post:
+      summary: Delete a saved screener screen.
+      responses: { "200": { description: Delete a saved screener screen. } }
+  /v1/user-prefs/raw:
+    post:
+      summary: Get the raw TVSettings prefs blob for the session.
+      responses: { "200": { description: Raw TVSettings prefs blob for the session. } }

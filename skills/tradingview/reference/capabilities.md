@@ -24,6 +24,18 @@ Two tiers gate every TradingView surface the Worker exposes. HMAC is universal; 
 | News content | `POST /v1/news/content` | |
 | Fundamentals | `POST /v1/fundamentals` | |
 | Earnings / dividends calendar | `POST /v1/calendar/earnings`, `POST /v1/calendar/dividends` | |
+| News-mediator headlines | `GET /v1/news/symbol`, `GET /v1/news/symbol-view`, `GET /v1/news/category`, `GET /v1/news/story` | news-mediator host (P16). |
+| Economic calendar / IPO / splits | `GET /v1/calendar/events`, `POST /v1/calendar/ipos`, `POST /v1/calendar/splits` | Origin header injected upstream (P16). |
+| Symbol resolve (www) | `POST /v1/symbol/resolve`, `POST /v1/symbol/resolve-batch` | www.tradingview.com REST surface (P20). |
+| Standard study templates | `POST /v1/study-templates/standard` | Built-in templates (P20). |
+| Ideas feed | `POST /v1/ideas/feed` | (P20) |
+| Public chats / DM lists | `POST /v1/chats/public`, `POST /v1/chats/dm`, `POST /v1/conversation-status` | DM list requires admin session (P20). |
+| Tweet / fundamentals-config / support i18n / brokers | `POST /v1/social/tweet`, `POST /v1/financial/fundamentals-config`, `POST /v1/support/i18n`, `POST /v1/brokers/trading-panel` | KV-cached read surfaces (P20). |
+| Scanner v2 | `POST /v1/scan2`, `POST /v1/screener/metainfo`, `GET /v1/screener/{enum,columns,markets,symbol}` | filter2 boolean tree (P15). |
+| Options snapshot | `GET /v1/options/iv/{sym}`, `volatility-chart/{sym}`, `expiries/{sym}`, `strikes/{sym}`, `chain/{sym}`, `greeks/{cs}`, `POST /v1/options/scan`, `GET /v1/options/metainfo` | (P14) |
+| Pine read-only | `GET /v1/pine/{script-info,versions,versions-all,auth,list,translate-light}` | Some require admin session for owned drafts (P13). |
+| Pine parse-title | `POST /v1/pine/parse-title` | (P13) |
+| Drawing tool catalogue | `POST /v1/line-tools/tools` | (P19) |
 | Movers | `POST /v1/movers` | Gainers/losers per market. |
 | Sector / industry movers | `POST /v1/markets/sector-movers`, `industry-movers`, `overview` | |
 | Symbol resolve | `POST /v1/resolve` | Same as search but single ticker. |
@@ -58,7 +70,14 @@ Two tiers gate every TradingView surface the Worker exposes. HMAC is universal; 
 | Live alert delivery | `WSS /v1/alerts/stream` | Pushstream proxy. |
 | Study templates | `GET /v1/study-templates`, `POST/PUT/DELETE /v1/study-templates/{id}`, `/rename`, `/favorite` | |
 | Drawing templates | `GET /v1/drawing-templates?tool=`, `POST /v1/drawing-templates`, `DELETE /v1/drawing-templates/{tool}/{name}` | |
+| Drawing tool templates (line-tools, P19) | `POST /v1/line-tools/templates/{list,load,save,delete}` | TVSettings-stored per-tool templates. |
 | Cache invalidate | `POST /cache/{symbol}/{tf}/invalidate` | Operations only. |
+| Charts-storage (P11) | `POST /v1/charts/list`, `/charts/token`, `/charts/layout`, `/charts/layout/user`, `/charts/layout/save`, `/charts/layout/delete`, `/charts/layout/copy` (lead), `/charts/layout/move` (lead) | RS512 chart-token JWT minted Worker-side (cached by `(userId,layoutId)`); refresh on 401/403. |
+| Watchlists (P12) | `GET /v1/watchlists/list`, `/watchlists/get/{id}`, `/watchlists/active`; `POST /v1/watchlists/{create,delete/{id},append/{id},remove-symbols/{id},replace/{id},rename/{id},update-meta/{id},replace-symbol,active/{id}}` | Active-watchlist pointer is separate; symbol replace operates across all lists. |
+| Pine CRUD writes (P13) | `POST /v1/pine/{save,publish,delete,rename,copy,convert,gen-alert}` | Modes for save: `new`/`next`/`new_draft`/`next_draft`. |
+| Live streams (P18, StreamBridge DO) | `GET /v1/stream/alerts`, `/stream/news`, `/stream/notifications`; `POST /v1/stream/alerts/poll`, `/stream/news/poll` | SSE bridge backed by 1000-entry ring buffer; `Last-Event-ID` resume; pushstream private channel + alerts channel. |
+| User/profile (www, P20) | `POST /v1/user/profile` (read or update) | Session-gated. |
+| TVSettings prefs (P21) | `POST /v1/user-prefs/favorites/{indicators,drawings}/{list,add,remove}`, `/user-prefs/recents/study-templates/{list,add}`, `/user-prefs/saved-screens/{list,save,delete}`, `/user-prefs/raw` | Semantic layer over TVSettings; `/raw` returns the full prefs blob. |
 
 ## Plan gating
 
