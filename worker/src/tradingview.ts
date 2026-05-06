@@ -89,12 +89,15 @@ const parseMessage = (message: string) => {
     });
 };
 
-export const getAuthToken = async (sessionId?: string): Promise<string> => {
+export const getAuthToken = async (sessionId?: string, sessionSign?: string): Promise<string> => {
   if (!sessionId) return "unauthorized_user_token";
   try {
+    const cookie = sessionSign
+      ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
+      : `sessionid=${sessionId}`;
     const resp = await fetch("https://www.tradingview.com/disclaimer/", {
       method: "GET",
-      headers: { Cookie: `sessionid=${sessionId}` },
+      headers: { Cookie: cookie },
     });
     const text = await resp.text();
     const match = text.match(/"auth_token":"(.+?)"/);

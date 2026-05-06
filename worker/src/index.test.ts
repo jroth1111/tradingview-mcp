@@ -95,4 +95,30 @@ describe("Worker auth boundary", () => {
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "stored-session" }));
     spy.mockRestore();
   });
+
+  it("validates admin session status through the auth-token path", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const tokenSpy = vi.spyOn(tv, "getAuthToken").mockResolvedValueOnce("authorized-token");
+    const profileSpy = vi.spyOn(tv, "getUserProfile");
+    const headers = await signRequest("GET", "/admin/session/status", "");
+
+    const res = await app.request("/admin/session/status", { method: "GET", headers }, env);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      stored: {
+        sessionId: "stored-session",
+        sessionSign: "stored-sign",
+        failures: 0,
+        blockedUntil: 0,
+        updatedAt: expect.any(Number),
+      },
+    });
+    expect(tokenSpy).toHaveBeenCalledWith("stored-session", "stored-sign");
+    expect(profileSpy).not.toHaveBeenCalled();
+    tokenSpy.mockRestore();
+    profileSpy.mockRestore();
+  });
 });

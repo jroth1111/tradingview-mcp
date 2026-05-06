@@ -146,7 +146,8 @@ app.get("/admin/session/status", async (c) => {
   if (!stored) return c.json({ ok: false, reason: "not set" });
   if (isBlocked(stored)) return c.json({ ok: false, reason: "blocked", stored });
   try {
-    await getUserProfile({ sessionId: stored.sessionId, sessionSign: stored.sessionSign });
+    const token = await getAuthToken(stored.sessionId, stored.sessionSign);
+    if (token === "unauthorized_user_token") throw new Error("Wrong or expired sessionid/sessionid_sign");
     return c.json({ ok: true, stored });
   } catch (err: any) {
     await markAuthFailure(c.env.CACHE_META);
