@@ -11,6 +11,7 @@
 - WebSocket protocol checkpoint: `docs/tradingview-websocket-rediscovery-2026-05-06.md`
 - Sanitized authenticated HAR runtime capture: `docs/tradingview-har-runtime-capture-2026-05-06.md`
 - Clean-browser unauthenticated runtime capture: `docs/tradingview-unauth-browser-runtime-2026-05-07.md`
+- Direct no-cookie probes for HAR-observed read surfaces: `docs/tradingview-direct-unauth-probes-2026-05-07.md`
 - Scope not yet covered: authenticated browser network capture, plan-gated UI paths, full WebSocket frame capture, source maps, account-specific watchlists/layouts/alerts, mobile app traffic, and all locale/product pages beyond sampled pages
 
 This is not a completeness claim. The purpose of this pass is to turn the unknown-unknown workflow into durable evidence and identify the next probes required to keep rediscovering surfaces when TradingView changes.
@@ -216,10 +217,11 @@ Repo support:
 
 1. Authenticated browser capture pass: sanitized HAR analysis now distinguishes unauthenticated-achievable, authenticated-observed, and auth-status-unknown surfaces in `docs/tradingview-har-runtime-capture-2026-05-06.md`. Still open: alert create/edit/delete, layout/watchlist mutation, options XHR, portfolio/paper runtime calls, replay/deep-backtesting WebSocket frames, and redacted request/response schema fixtures.
 2. Unauthenticated browser runtime pass: clean Playwright context proves public product data calls for options scanner bootstrap, stock heatmap scanner feed, economic calendar events, dividend/earnings calendar feeds, and options symbol search in `docs/tradingview-unauth-browser-runtime-2026-05-07.md`.
-3. Bundle expansion pass: fetched product-specific pages for heatmaps, economic calendar, yield curves, macro maps, options, portfolio, paper trading, widgets, Pine screener, CEX/DEX screeners, and compared new bundle chunks against this baseline. Current artifact: `docs/tradingview-surface-expansion-2026-05-06.md`.
-4. WebSocket protocol pass: direct unauthenticated probes captured `data`, `prodata`, `history-data`, and `widgetdata` chart/quote/candle frame names; current artifact: `docs/tradingview-websocket-rediscovery-2026-05-06.md`. Browser replay/deep-backtesting and authenticated payload-schema capture remain open.
-5. Worker gap implementation planning: group additions by authority boundary: chart/session protocol, screeners/storage, Pine/script, calendar/macro, alerts/notifications, watchlists/layouts, options/portfolio/paper.
-6. Robustness pass: every new upstream integration must preserve error categories `network`, `rate_limit`, `auth`, `upstream`, `bad_request`, and should retry network failures without downgrading capability state.
+3. Direct unauthenticated endpoint pass: no-cookie probes against HAR-observed read endpoints identify which cookie-bearing HAR calls are actually public and which return auth gates. Current artifact: `docs/tradingview-direct-unauth-probes-2026-05-07.md`.
+4. Bundle expansion pass: fetched product-specific pages for heatmaps, economic calendar, yield curves, macro maps, options, portfolio, paper trading, widgets, Pine screener, CEX/DEX screeners, and compared new bundle chunks against this baseline. Current artifact: `docs/tradingview-surface-expansion-2026-05-06.md`.
+5. WebSocket protocol pass: direct unauthenticated probes captured `data`, `prodata`, `history-data`, and `widgetdata` chart/quote/candle frame names; current artifact: `docs/tradingview-websocket-rediscovery-2026-05-06.md`. Browser replay/deep-backtesting and authenticated payload-schema capture remain open.
+6. Worker gap implementation planning: group additions by authority boundary: chart/session protocol, screeners/storage, Pine/script, calendar/macro, alerts/notifications, watchlists/layouts, options/portfolio/paper.
+7. Robustness pass: every new upstream integration must preserve error categories `network`, `rate_limit`, `auth`, `upstream`, `bad_request`, and should retry network failures without downgrading capability state.
 
 ## Runtime Capture Tooling
 

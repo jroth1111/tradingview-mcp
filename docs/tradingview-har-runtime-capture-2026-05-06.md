@@ -14,6 +14,7 @@
 - Response `Set-Cookie` entries: 1
 - Redacted schema sketches: `docs/tradingview-har-schema-sketches-2026-05-06.md`
 - Clean-browser unauthenticated runtime follow-up: `docs/tradingview-unauth-browser-runtime-2026-05-07.md`
+- Direct no-cookie probes for HAR-observed read surfaces: `docs/tradingview-direct-unauth-probes-2026-05-07.md`
 
 The HAR is sensitive and was not committed. This artifact records only sanitized host/path/method/status/auth-evidence summaries.
 
@@ -89,7 +90,7 @@ The HAR upgrades these from static bundle/page leads to runtime-proven endpoints
 - Study templates and script package store
 - Broker trading panel metadata
 
-The follow-up clean-browser pass additionally proves unauthenticated runtime access for options scanner bootstrap, stock heatmap scanner feed, economic calendar events, dividend/earnings scanner feeds, and options symbol search. Use that artifact when deciding whether Worker support can start from an unauthenticated mode before adding authenticated enrichment.
+The follow-up clean-browser pass additionally proves unauthenticated runtime access for options scanner bootstrap, stock heatmap scanner feed, economic calendar events, dividend/earnings scanner feeds, and options symbol search. Direct no-cookie probes further prove unauthenticated access for default custom watchlist payloads, standard study templates, public script packages, Pine built-in lists, broker panel metadata, fundamentals config, and scanner symbol metadata. Use those artifacts when deciding whether Worker support can start from an unauthenticated mode before adding authenticated enrichment.
 
 ## Worker Coverage Delta
 
@@ -100,10 +101,10 @@ The follow-up clean-browser pass additionally proves unauthenticated runtime acc
 | Symbol search v3 | partial search | compare current search route against v3 query/response shape |
 | Alerts list/offline fires | absent | authenticated alerts read surfaces |
 | Chart storage/user/layout sources | absent | authenticated chart layout/source retrieval |
-| Watchlists | absent | authenticated watchlist list/read surfaces |
-| Pine facade eval/list/translate/script info | partial private indicator/study surfaces | Pine facade runtime endpoints |
-| Study templates | absent | authenticated study-template list |
-| Broker trading panel metadata | absent | read-only broker panel metadata |
+| Watchlists | absent | default custom list is public; all/colored/user inventory requires auth |
+| Pine facade eval/list/translate/script info | partial private indicator/study surfaces | built-in list/auth-capability are public; eval/translate/user script auth still needs targeted probes |
+| Study templates | absent | standard templates are public; custom list enrichment depends on auth |
+| Broker trading panel metadata | absent | public read-only broker panel metadata |
 | Chats/support unread | absent | likely out of Worker market-data scope unless explicitly requested |
 
 ## Next HAR/Runtime Work
