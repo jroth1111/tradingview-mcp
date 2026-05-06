@@ -19,7 +19,7 @@ High-signal request-builder findings:
 | --- | --- | --- |
 | Yield curves | Bundle code builds `new URL("/yield-curves/", window.location.origin)` and appends `component-data-only=1`; fetch method `GET` | request-builder found |
 | Macro maps | Runtime chunk names include `macro-maps-builder-dialog`; page bundle hydrates macro maps state | request-builder partially found |
-| Pine Screener | `pine_screener...js` defines scan fetch to `${PINE_SCREENER_HOST || "https://pine-screener.tradingview.com"}/pine_scanner_http/scan` with `method:"POST"`, JSON body, `credentials:"include"`, and `Accept: application/json` | request-builder found; body still unknown |
+| Pine Screener | `pine_screener...js` defines scan fetch to `${PINE_SCREENER_HOST || "https://pine-screener.tradingview.com"}/pine_scanner_http/scan` with `method:"POST"`, JSON body, `credentials:"include"`, and `Accept: application/json` | request-builder found; body later derived in `docs/tradingview-pine-screener-macro-decompilation-2026-05-07.md` |
 
 ## Direct Page-Data Probes
 
@@ -34,7 +34,7 @@ A clean no-session browser render of `/pine-screener/` produced the visible text
 
 - The bundle exposes the scan transport path and credential behavior.
 - The public no-session UI does not expose the scan body.
-- Capturing the body requires an authenticated browser session or deeper decompilation of the request construction path.
+- Capturing a successful scan requires an authenticated browser session; a later decompilation pass derived the request-body shape.
 
 ## Classification Delta
 
@@ -43,20 +43,20 @@ Move yield curves from static/page-only to unauthenticated-achievable for the de
 Keep open:
 
 - Macro maps data population, because the no-cookie component-data endpoint returned shell state with null indicators/timestamps/type table.
-- Pine Screener body schema, because the bundle exposed host/method/credential behavior but the no-session UI is sign-in gated.
+- Pine Screener authenticated behavior, because a later structurally valid no-cookie scan returned `missing_or_invalid_auth_headers`.
 
 ## Failure Classification
 
 - Passive-load absence was not service absence. Bundle mining found the yield-curves component-data path, and direct probing returned data.
 - Macro maps component-data returned HTTP 200 shell data, not an auth or network error.
-- Pine Screener requires authenticated interaction or deeper request-builder extraction for the POST body. The bundle confirms the host/path/method and that credentials are included.
+- Pine Screener requires authenticated interaction for successful scans. A later decompilation pass derived the body shape and a no-cookie structurally valid scan returned `missing_or_invalid_auth_headers`.
 
 ## Worker Gap
 
-Current Worker has no first-class yield curves, macro maps, or Pine Screener route. Yield curves can likely begin as a public read endpoint for component page data, while macro maps and Pine Screener need one more interaction or decompilation pass before implementation planning.
+Current Worker has no first-class yield curves, macro maps, or Pine Screener route. Yield curves can likely begin as a public read endpoint for component page data. Macro maps should be modeled as a chart-data-backed economic-symbol composition, and Pine Screener should be modeled as an authenticated/header-required Pine stream endpoint.
 
 ## Remaining Probes
 
-1. Macro maps interaction or deeper bundle extraction to identify indicator/timestamp/type-table request builders.
-2. Pine Screener interaction or decompiled request-body construction for `/pine_scanner_http/scan`.
+1. Macro maps browser interaction to record ChartApi/WebSocket frames for indicator/timestamp changes.
+2. Authenticated Pine Screener interaction to distinguish login, feature-flag, and plan entitlement behavior for `/pine_scanner_http/scan`.
 3. Yield curves parameter exploration: country changes, settings fields, and whether component-data accepts explicit country/query state.

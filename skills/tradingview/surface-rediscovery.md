@@ -27,6 +27,30 @@ Explore multiple UI paths:
 
 Continue exploring until marginal discoveries flatten. A report that only validates existing Worker routes or obvious TradingView APIs is a failure.
 
+## Parallel Discovery Lanes
+
+For a broad rediscovery pass, set up parallel discovery with ten specialized agents or work lanes. Each lane owns one distinct surface family and receives the same evidence pack:
+
+- The sanitized HAR summary plus the local sensitive HAR path when the worker is allowed to inspect it.
+- Unauthenticated browser/runtime captures, including raw request logs when available.
+- Worker authority files: `worker/`, `packages/tradingview-core/`, `worker/openapi.yaml`, and this skill.
+- Permission to mine unknown unknowns from bundles, manifests, route chunks, WebSocket frames, feature flags, and invisible request builders.
+
+Lanes:
+
+1. Chart/session/WebSocket protocol, replay, deep backtesting, drawing/storage side channels.
+2. Scanner, screeners, heatmaps, options, product-specific scanner labels, metainfo, enum endpoints.
+3. Pine, Pine facade, indicators, studies, Pine Screener, script metadata, eval/translate flows.
+4. Alerts, notifications, pushstream, support unread, fire logs, delivery controls.
+5. Watchlists, layouts, chart storage, drawings, study templates, symbol lists.
+6. Calendars, fundamentals, macro maps, yield curves, seasonals, forward curves, economic data.
+7. News, ideas, community, chats, minds/social, profile/content surfaces.
+8. Brokerage, paper trading, portfolios, trading panel, order/account runtime paths.
+9. Widgets, embeds, static charting library, public widget hosts, iframe/postMessage surfaces.
+10. Authentication, plan gates, feature flags, account/session state, mobile/desktop app-only traffic.
+
+Each lane must distinguish unauthenticated, authenticated, plan-gated, feature-flagged, shape-gated, network/upstream, and invocation failures. Network/upstream/rate-limit failures are retryable evidence, not capability downgrades; keep retrying or record them as unresolved transport state. Auth failures should preserve the strongest observed credential shape rather than falling back to weaker unauthenticated behavior.
+
 ## Unknown-Unknown Discipline
 
 - Do not assume TradingView's visible UI equals its available integration surface.

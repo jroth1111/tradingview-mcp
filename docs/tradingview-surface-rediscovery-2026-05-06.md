@@ -230,9 +230,10 @@ Repo support:
 6. Product runtime pass: clean-browser capture promoted ETF/crypto heatmaps and CEX/DEX/bond/ETF screeners from static/page leads to public scanner/metainfo/enum runtime surfaces in `docs/tradingview-product-runtime-capture-2026-05-07.md`.
 7. Pine/calendar direct pass: exact no-cookie replay of safe HAR scanner shapes promoted markets-earnings, IPO calendar, related-symbols, bond details, Pine versions, and Pine translate to unauthenticated-achievable in `docs/tradingview-pine-calendar-direct-probes-2026-05-07.md`.
 8. Shell-page bundle mining pass: temp-only bundle extraction found yield-curves component-data, macro maps shell state, and Pine Screener scan host/method/credential behavior in `docs/tradingview-shell-page-bundle-mining-2026-05-07.md`.
-9. Parallel surface-family pass: six read-only explorers plus local news/community/widget inspection synthesized into `docs/tradingview-parallel-discovery-synthesis-2026-05-07.md`; platform thread limit prevented launching all ten proposed agents at once.
-10. Worker gap implementation planning: group additions by authority boundary: chart/session protocol, screeners/storage, Pine/script, calendar/macro, alerts/notifications, watchlists/layouts, options/portfolio/paper.
-11. Completion audit: `docs/tradingview-rediscovery-completion-audit-2026-05-07.md` maps every explicit rediscovery requirement to artifacts and records remaining blockers.
+9. Pine Screener / macro maps decompilation pass: derived Pine Screener scan body construction, proved a structurally valid no-cookie scan reaches an auth/header gate, and identified macro maps as a ChartApi-backed economic-symbol quote/series composition in `docs/tradingview-pine-screener-macro-decompilation-2026-05-07.md`.
+10. Parallel surface-family pass: six read-only explorers plus local news/community/widget inspection synthesized into `docs/tradingview-parallel-discovery-synthesis-2026-05-07.md`; platform thread limit prevented launching all ten proposed agents at once.
+11. Worker gap implementation planning: group additions by authority boundary: chart/session protocol, screeners/storage, Pine/script, calendar/macro, alerts/notifications, watchlists/layouts, options/portfolio/paper.
+12. Completion audit: `docs/tradingview-rediscovery-completion-audit-2026-05-07.md` maps every explicit rediscovery requirement to artifacts and records remaining blockers.
 12. Robustness pass: every new upstream integration must preserve error categories `network`, `rate_limit`, `auth`, `upstream`, `bad_request`, and should retry network failures without downgrading capability state.
 
 ## Runtime Capture Tooling

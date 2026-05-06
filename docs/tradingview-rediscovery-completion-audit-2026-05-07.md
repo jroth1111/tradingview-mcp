@@ -30,8 +30,9 @@ This audit does not mark the objective complete. It maps completed evidence and 
 | Parallel specialized discovery | `docs/tradingview-parallel-discovery-synthesis-2026-05-07.md` | partially verified; six agents ran, platform limit prevented ten concurrent agents |
 | Product runtime surface expansion | `docs/tradingview-product-runtime-capture-2026-05-07.md` | verified for ETF/crypto heatmaps and CEX/DEX/bond/ETF screeners |
 | Shell-page bundle mining | `docs/tradingview-shell-page-bundle-mining-2026-05-07.md` | verified for yield-curves component data, macro-maps shell, Pine Screener transport/UI gate |
+| Pine Screener / macro maps decompilation | `docs/tradingview-pine-screener-macro-decompilation-2026-05-07.md` | verified for Pine Screener request body construction, no-cookie auth/header gate, and macro maps ChartApi-backed runtime path |
 | Preserve robust failure classes | failure sections across rediscovery/direct/product/shell artifacts classify auth, shape, invocation, network, endpoint mismatch, root-path absence, and observed-open-idle | verified |
-| Push all work | commits through `5d86bf3`; `git status --short --branch` clean and tracking `origin/main` | verified |
+| Push all work | commits through this audit's latest committed state; `git status --short --branch` should be clean and tracking `origin/main` after the session close push | verified after session close |
 
 ## Surface Coverage Matrix
 
@@ -51,7 +52,7 @@ This audit does not mark the objective complete. It maps completed evidence and 
 | Paper trading | static/service leads only | authenticated read-only account/panel capture; no order placement without explicit approval |
 | Brokers | broker panel metadata public | authenticated hidden/region/entitlement differences |
 | Pine facade | list, versions, translate, eval are public for probed shapes; script-info 401 | authenticated script-info behavior and user/private script shape |
-| Pine Screener | public page, bundle transport path, sign-in UI gate | scan request body via authenticated UI or deeper decompilation |
+| Pine Screener | public page, bundle transport path, sign-in UI gate, derived scan request body, no-cookie auth/header gate | authenticated UI capture to distinguish login, feature flag, and plan entitlement |
 | Generic scanner | Worker has generic scan; many product scanner shapes captured | first-class product model and response schemas |
 | Screener persistence | static facade/storage/API v2 screen leads | save/autosave UI capture |
 | Heatmaps | stock/ETF/crypto runtime public scanner feeds | response schemas and interaction changes |
@@ -59,7 +60,7 @@ This audit does not mark the objective complete. It maps completed evidence and 
 | Economic calendar | public events endpoint and scanner calendars captured | response schema detail and edge filters |
 | IPO/markets earnings/related bonds | exact no-cookie HAR body replay works | formal response schema sketches |
 | Yield curves | component-data endpoint public | parameter exploration and country/settings changes |
-| Macro maps | component-data shell public | populated indicator/timestamp data request path |
+| Macro maps | component-data shell public; decompiled ChartApi quote/series data path | browser frame capture for default indicator, indicator switch, country group switch, and historical slider |
 | Fundamentals | fundamentals config and scanner symbol public | response schema consolidation |
 | News mediator | public HAR/runtime news flow and symbol view | Worker parity planning vs existing news-headlines route |
 | Ideas/Minds/community | existing Worker partial support and static leads | broader authenticated/community interactions |
@@ -77,8 +78,8 @@ The rediscovery has strong public, HAR, direct-probe, browser-runtime, WebSocket
 - Explicit approval and rollback plan for mutation probes: alerts, watchlists, layouts, drawings.
 - Replay and deep-backtesting UI WebSocket frame capture.
 - Portfolio and paper trading runtime capture.
-- Pine Screener scan body.
-- Macro maps populated runtime data.
+- Pine Screener authenticated/feature/plan behavior after the scan body is now derived.
+- Macro maps populated ChartApi/WebSocket frames after the runtime path is now identified.
 - Charts-polygon intended trigger.
 - Exhaustive widget/embed inventory.
 - Mobile/desktop app traffic, if the objective includes non-web TradingView clients.
@@ -89,7 +90,7 @@ To continue beyond the safe public/no-cookie frontier, the next required input i
 
 1. A logged-in TradingView browser profile/session that can be reused for read-only authenticated captures.
 2. Explicit approval for safe disposable mutation probes, with rollback constraints, for alerts/watchlists/layouts/drawings.
-3. Permission to spend a deeper decompilation pass on selected bundles and produce only compact derived request-builder evidence.
+3. Permission to spend further deeper decompilation passes on selected bundles and produce only compact derived request-builder evidence.
 4. A scoped decision that mobile/desktop client traffic is in or out of this rediscovery objective.
 
 Until one of those is available, the remaining gaps are blocked by access, mutation authorization, or deeper reverse-engineering scope rather than ordinary public probing.
