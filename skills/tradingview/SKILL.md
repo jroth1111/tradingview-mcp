@@ -17,7 +17,7 @@ Use this skill when a user asks for TradingView market data, technical analysis,
 
 Read `auth.md` before making authenticated requests.
 
-All Worker requests that can reach TradingView upstream require HMAC authorization. Use the Worker admin session store for TradingView browser credentials; do not place `sessionId` values in local JSON files.
+All Worker requests that can reach TradingView upstream require HMAC authorization. The Worker fails closed with a server error when HMAC environment configuration is missing. Use the Worker admin session store for TradingView browser credentials; do not place `sessionId` values in local JSON files.
 
 ## Workflows
 
@@ -35,4 +35,8 @@ All Worker requests that can reach TradingView upstream require HMAC authorizati
 1. Resolve ambiguous symbols with `POST /v1/search`.
 2. Prefer stored Worker session credentials. Do not pass caller-provided `sessionId` unless the admin store is intentionally empty.
 3. Keep data requests bounded: small `amount`, `limit`, or date ranges first.
-4. Report source limits clearly: TradingView plan/access, missing stored session, upstream rate limits, and partial cache responses.
+4. If the Worker returns `retryable:true` with `category:"network"`, `category:"upstream"`, or `category:"rate_limit"`, retry with backoff and preserve the stored session. Do not rotate credentials or fall back to weaker unauthenticated behavior for retryable transport failures.
+5. Treat `category:"auth"` as a credential/session issue. Check `GET /admin/session/status`, then refresh the Worker admin session when needed.
+6. Preserve and report `authSource` values (`stored`, `provided`, or `none`) on session-aware responses.
+7. Treat `partial:true` cache responses as incomplete coverage. Report the returned `upstreamError` when present and retry only if it is retryable.
+8. Report source limits clearly: TradingView plan/access, missing stored session, upstream rate limits, retryable network state, and partial cache responses.

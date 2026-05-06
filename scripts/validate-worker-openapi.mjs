@@ -21,6 +21,11 @@ if (!hmac || hmac.type !== "http" || hmac.scheme !== "hmac") {
   throw new Error("worker/openapi.yaml: missing HmacAuth http/hmac security scheme");
 }
 
+const errorSchema = openapi.components?.schemas?.Error;
+if (!errorSchema?.properties?.category || !errorSchema?.properties?.retryable) {
+  throw new Error("worker/openapi.yaml: Error schema must document category and retryable fields");
+}
+
 if (!Array.isArray(openapi.security) || !openapi.security.some((entry) => entry?.HmacAuth)) {
   throw new Error("worker/openapi.yaml: missing top-level HmacAuth security requirement");
 }

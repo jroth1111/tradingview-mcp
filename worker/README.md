@@ -30,6 +30,7 @@ TradingView browser credentials are stored through the admin API:
 - `POST /admin/session` stores a fresh `sessionid` and optional `sessionid_sign` in KV.
 - Stored session credentials are authoritative for normal data routes.
 - Caller-provided `sessionId` fields are compatibility inputs only and do not override a valid stored session.
+- Stored `sessionid_sign` values are preserved across Worker WebSocket/auth-token/cache paths; the Worker must not downgrade a signed session to `sessionid` only.
 - `POST /admin/session/unblock` clears temporary auth-failure block state.
 - `GET /admin/session/status` validates that the stored session can support the Worker market-data path.
 
@@ -60,5 +61,14 @@ After deployment, sign requests with the configured HMAC client and verify:
 - `GET /admin/session/status` returns `ok:true` after a fresh session is stored.
 - `POST /v1/candles` returns candles with `authSource:"stored"`.
 - `GET /cache/:symbol/:tf` fills through `FETCH_COORDINATOR` and returns cache metadata.
+
+## Failure Recovery
+
+Upstream failures are classified in error responses when possible:
+
+- `category:"network"`, `category:"upstream"`, or `category:"rate_limit"` with `retryable:true` means retry with backoff and keep the stored session.
+- `category:"auth"` means the TradingView browser session is wrong, expired, blocked, or missing access and should be refreshed through `POST /admin/session`.
+
+Network and upstream failures do not increment the stored-session auth-failure counter.
 
 Use placeholders only in documentation. Never commit live `sessionid`, `sessionid_sign`, HMAC secrets, or derived TradingView auth tokens.

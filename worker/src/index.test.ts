@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import app, { scheduled } from "./index";
-import { setStoredSession } from "./auth-store";
+import { getStoredSession, setStoredSession } from "./auth-store";
 import * as tv from "./tradingview";
 import * as cacheModule from "./cache";
 import * as pruneModule from "./prune";
@@ -84,6 +84,94 @@ describe("Worker auth boundary", () => {
     expect(res.status).toBe(401);
   });
 
+  it("rejects forged HMAC signatures", async () => {
+    const env = makeEnv();
+    const headers = await signRequest("POST", "/v1/quotes", "{}");
+    headers.authorization = "HMAC client:" + "0".repeat(64);
+    const res = await app.request("/v1/quotes", { method: "POST", body: "{}", headers }, env);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "Unauthorized" });
+  });
+
+  it("rejects malformed (non-hex) HMAC signatures without throwing", async () => {
+    const env = makeEnv();
+    const headers = await signRequest("POST", "/v1/quotes", "{}");
+    headers.authorization = "HMAC client:not-a-hex-string";
+    const res = await app.request("/v1/quotes", { method: "POST", body: "{}", headers }, env);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "Unauthorized" });
+  });
+
+  it("rejects requests outside the 5-minute timestamp skew window", async () => {
+    const env = makeEnv();
+    const body = "{}";
+    const stale = (Date.now() - 6 * 60 * 1000).toString();
+    const bodyHash = hex(await crypto.subtle.digest("SHA-256", encoder.encode(body)));
+    const canonical = ["POST", "/v1/quotes", bodyHash, stale].join("\n");
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode("secret"),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const signature = hex(await crypto.subtle.sign("HMAC", key, encoder.encode(canonical)));
+    const headers = {
+      authorization: `HMAC client:${signature}`,
+      "x-timestamp": stale,
+      "content-type": "application/json",
+    };
+    const res = await app.request("/v1/quotes", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "Timestamp skew too large" });
+  });
+
+  it("does not fire auth failure on errors that merely contain the word 'expired'", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const spy = vi
+      .spyOn(tv, "getUserProfile")
+      .mockRejectedValueOnce(new Error("Cache feature flag expired; rolled to defaults"));
+    const body = JSON.stringify({});
+    const headers = await signRequest("POST", "/v1/me", body);
+
+    const res = await app.request("/v1/me", { method: "POST", body, headers }, env);
+
+    expect(res.status).toBe(500);
+    const json = (await res.json()) as { category?: string; retryable?: boolean };
+    expect(json.category).toBe("unknown");
+    expect(json.retryable).toBe(false);
+    expect((await getStoredSession(env.CACHE_META))?.failures).toBe(0);
+    spy.mockRestore();
+  });
+
+  it("treats anchored TradingView session phrases as auth failures", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const spy = vi
+      .spyOn(tv, "getUserProfile")
+      .mockRejectedValueOnce(new Error("Wrong or expired sessionid/sessionid_sign"));
+    const body = JSON.stringify({});
+    const headers = await signRequest("POST", "/v1/me", body);
+
+    const res = await app.request("/v1/me", { method: "POST", body, headers }, env);
+
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as { category?: string };
+    expect(json.category).toBe("auth");
+    expect((await getStoredSession(env.CACHE_META))?.failures).toBe(1);
+    spy.mockRestore();
+  });
+
+  it("rejects non-finite cache query numbers before cache logic runs", async () => {
+    const headers = await signRequest("GET", "/cache/NASDAQ:AAPL/1D?total=not-a-number", "");
+
+    const res = await app.request("/cache/NASDAQ:AAPL/1D?total=not-a-number", { method: "GET", headers }, makeEnv());
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid total: not-a-number" });
+  });
+
   it("uses stored session instead of body sessionId on /v1/candles", async () => {
     const env = makeEnv();
     await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
@@ -95,6 +183,22 @@ describe("Worker auth boundary", () => {
 
     expect(res.status).toBe(200);
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "stored-session" }));
+    spy.mockRestore();
+  });
+
+  it("preserves stored sessionSign on /v1/candles instead of downgrading the credential", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const spy = vi.spyOn(tv, "getCandles").mockResolvedValueOnce([]);
+    const body = JSON.stringify({ symbols: ["NASDAQ:AAPL"], sessionId: "attacker", sessionSign: "attacker-sign" });
+    const headers = await signRequest("POST", "/v1/candles", body);
+
+    const res = await app.request("/v1/candles", { method: "POST", body, headers }, env);
+
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "stored-session", sessionSign: "stored-sign" }),
+    );
     spy.mockRestore();
   });
 
@@ -111,6 +215,7 @@ describe("Worker auth boundary", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       ok: true,
+      recovered: false,
       stored: {
         sessionId: "stored-session",
         sessionSign: "stored-sign",
@@ -125,6 +230,84 @@ describe("Worker auth boundary", () => {
     tokenSpy.mockRestore();
     candleSpy.mockRestore();
     profileSpy.mockRestore();
+  });
+
+  it("reports auth-token network failures as retryable without marking auth failure", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const tokenSpy = vi.spyOn(tv, "getAuthToken").mockRejectedValueOnce(new Error("fetch failed"));
+    const body = JSON.stringify({});
+    const headers = await signRequest("POST", "/v1/auth-token", body);
+
+    const res = await app.request("/v1/auth-token", { method: "POST", body, headers }, env);
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: "fetch failed",
+      category: "network",
+      retryable: true,
+    });
+    expect(tokenSpy).toHaveBeenCalledWith("stored-session", "stored-sign");
+    expect((await getStoredSession(env.CACHE_META))?.failures).toBe(0);
+    tokenSpy.mockRestore();
+  });
+
+  it("sanitizes TradingView login error payloads", async () => {
+    const rawError = `captcha\u0000\n${"x".repeat(300)}`;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: rawError }), { status: 400 }));
+
+    let message = "";
+    try {
+      await tv.loginUser({ username: "user", password: "pass" });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/^captcha x{190,}$/);
+    expect(message.length).toBeLessThanOrEqual(200);
+    expect(message).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+    fetchSpy.mockRestore();
+  });
+
+  it("returns retryable cache upstream errors without marking auth failure", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    env.FETCH_COORDINATOR = {
+      idFromName: (name: string) => name,
+      get: () => ({
+        fetch: async () =>
+          Response.json({
+            candles: [],
+            meta: {},
+            partial: true,
+            upstreamError: {
+              category: "network",
+              message: "Connection timeout to TradingView",
+              retryable: true,
+              status: 503,
+            },
+          }),
+      }),
+    } as unknown as CloudflareBindings["FETCH_COORDINATOR"];
+    const headers = await signRequest("GET", "/cache/NASDAQ:AAPL/1D", "");
+
+    const res = await app.request("/cache/NASDAQ:AAPL/1D", { method: "GET", headers }, env);
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      candles: [],
+      meta: {},
+      partial: true,
+      upstreamError: {
+        category: "network",
+        message: "Connection timeout to TradingView",
+        retryable: true,
+        status: 503,
+      },
+      authSource: "stored",
+    });
+    expect((await getStoredSession(env.CACHE_META))?.failures).toBe(0);
   });
 
   it("falls back to the market-data path for admin session status", async () => {

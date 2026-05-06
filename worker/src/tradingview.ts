@@ -10,6 +10,7 @@ import {
   normalizeTradingViewPayload,
   type TradingviewEndpoint,
 } from "../../packages/tradingview-core/src";
+import { UpstreamError, toUpstreamError } from "./upstream-error";
 
 export type { Candle } from "../../packages/tradingview-core/src";
 import type { Candle } from "../../packages/tradingview-core/src";
@@ -32,6 +33,7 @@ export interface CandleRequest {
   amount?: number;
   endpoint?: TradingviewEndpoint;
   sessionId?: string;
+  sessionSign?: string;
   timeoutMs?: number;
   debug?: boolean;
   to?: number; // optional end timestamp for the batch
@@ -67,6 +69,16 @@ const processRawCandles = (raw: any[], amount?: number): Candle[] => {
   }));
 };
 
+export const trimIncomingCandlesForBatch = <T>(
+  incoming: T[],
+  existing: T[],
+  batchSize: number,
+): T[] => {
+  if (incoming.length <= batchSize) return incoming;
+  if (existing.length === 0) return incoming.slice(0, batchSize);
+  return incoming.slice(0, -existing.length);
+};
+
 const parseMessage = (message: string) => {
   if (!message) return [];
   const normalized = normalizePayload(message.toString());
@@ -85,24 +97,45 @@ const parseMessage = (message: string) => {
 
 export const getAuthToken = async (sessionId?: string, sessionSign?: string): Promise<string> => {
   if (!sessionId) return "unauthorized_user_token";
-  try {
-    const cookie = sessionSign
-      ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
-      : `sessionid=${sessionId}`;
-    const resp = await fetch("https://www.tradingview.com/disclaimer/", {
-      method: "GET",
-      headers: { Cookie: cookie },
-    });
-    const text = await resp.text();
-    const match = text.match(/"auth_token":"(.+?)"/);
-    return match ? match[1] : "unauthorized_user_token";
-  } catch {
-    return "unauthorized_user_token";
+  const cookie = sessionSign
+    ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
+    : `sessionid=${sessionId}`;
+  const maxAttempts = 3;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const resp = await fetch("https://www.tradingview.com/disclaimer/", {
+        method: "GET",
+        headers: { Cookie: cookie },
+      });
+      if (!resp.ok) {
+        throw new UpstreamError(`auth token request failed: ${resp.status} ${resp.statusText}`, {
+          category:
+            resp.status === 401 || resp.status === 403
+              ? "auth"
+              : resp.status === 429
+                ? "rate_limit"
+                : "upstream",
+          retryable: resp.status === 429 || resp.status >= 500,
+          status: resp.status,
+        });
+      }
+      const text = await resp.text();
+      const match = text.match(/"auth_token":"(.+?)"/);
+      return match ? match[1] : "unauthorized_user_token";
+    } catch (err) {
+      const upstreamError = toUpstreamError(err, "auth token request failed");
+      if (!upstreamError.retryable || attempt === maxAttempts - 1) {
+        throw upstreamError;
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(500 * 2 ** attempt, 2000)));
+    }
   }
+  return "unauthorized_user_token";
 };
 
 const connect = async (opts: {
   sessionId?: string;
+  sessionSign?: string;
   endpoint?: TradingviewEndpoint;
   timeoutMs?: number;
   debug?: boolean;
@@ -110,12 +143,16 @@ const connect = async (opts: {
   const preferred = opts.endpoint && TRADINGVIEW_WS_ENDPOINTS[opts.endpoint] ? opts.endpoint : "prodata";
   const fallback = Object.keys(TRADINGVIEW_WS_ENDPOINTS).filter((k) => k !== preferred);
   const attempts = [preferred, ...fallback] as TradingviewEndpoint[];
-  const token = await getAuthToken(opts.sessionId);
+  const token = await getAuthToken(opts.sessionId, opts.sessionSign);
   let lastError: any;
 
   for (const ep of attempts) {
     const wsUrl = TRADINGVIEW_WS_ENDPOINTS[ep];
-    const socket = new RawWebSocket(wsUrl, { sessionId: opts.sessionId, debug: opts.debug });
+    const socket = new RawWebSocket(wsUrl, {
+      sessionId: opts.sessionId,
+      sessionSign: opts.sessionSign,
+      debug: opts.debug,
+    });
     const subscribers = new Set<Subscriber>();
 
     const subscribe = (handler: Subscriber): Unsubscriber => {
@@ -198,7 +235,7 @@ const connect = async (opts: {
 
       return connection;
     } catch (err) {
-      lastError = err;
+      lastError = toUpstreamError(err, "TradingView WebSocket connection failed");
       await socket.close().catch(() => {});
       // try next endpoint with a tiny backoff
       await new Promise((r) => setTimeout(r, 50));
@@ -216,6 +253,7 @@ export const getCandles = async (req: CandleRequest): Promise<Candle[]> => {
 
   const connection = await connect({
     sessionId: req.sessionId,
+    sessionSign: req.sessionSign,
     endpoint: req.endpoint,
     timeoutMs: req.timeoutMs,
     debug: req.debug,
@@ -235,9 +273,11 @@ export const getCandles = async (req: CandleRequest): Promise<Candle[]> => {
           );
           if (seriesKey) {
             let newCandles = sessionData[seriesKey].s;
-            if (newCandles.length > batchSize) {
-              newCandles = newCandles.slice(0, -rawCandles.length);
-            }
+            // When upstream returns more bars than the batch we asked for, trim
+            // overlap with bars we already have. -rawCandles.length collapses
+            // to -0 (=== 0) when rawCandles is empty, which would discard the
+            // entire first batch - guard explicitly.
+            newCandles = trimIncomingCandlesForBatch(newCandles, rawCandles, batchSize);
             rawCandles = newCandles.concat(rawCandles);
           }
           return;
@@ -309,6 +349,7 @@ export interface QuoteRequest {
   fields?: string[];
   endpoint?: TradingviewEndpoint;
   sessionId?: string;
+  sessionSign?: string;
   timeoutMs?: number;
 }
 
@@ -339,6 +380,7 @@ export const getQuotes = async (req: QuoteRequest): Promise<QuoteResult> => {
   const quoteSession = generateSessionId("qs");
   const connection = await connect({
     sessionId: req.sessionId,
+    sessionSign: req.sessionSign,
     endpoint: req.endpoint,
     timeoutMs: req.timeoutMs,
   });
@@ -756,6 +798,7 @@ export interface StudyRequest {
   inputs?: Record<string, any>;
   endpoint?: TradingviewEndpoint;
   sessionId?: string;
+  sessionSign?: string;
   timeoutMs?: number;
 }
 
@@ -773,6 +816,7 @@ export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
   const chartSession = generateSessionId("cs");
   const connection = await connect({
     sessionId: req.sessionId,
+    sessionSign: req.sessionSign,
     endpoint: req.endpoint,
     timeoutMs: req.timeoutMs,
   });
@@ -848,6 +892,7 @@ export interface BackfillRequest {
   total?: number; // desired total bars
   endpoint?: TradingviewEndpoint;
   sessionId?: string;
+  sessionSign?: string;
   delayMs?: number;
 }
 
@@ -867,6 +912,7 @@ export const backfillCandles = async (req: BackfillRequest): Promise<Candle[]> =
       amount,
       endpoint: req.endpoint,
       sessionId: req.sessionId,
+      sessionSign: req.sessionSign,
       to: cursor,
     });
     if (!candles.length) break;
@@ -1002,6 +1048,7 @@ export interface ReplayRequest {
   startTime?: number; // timestamp to start replay
   endpoint?: TradingviewEndpoint;
   sessionId?: string;
+  sessionSign?: string;
   timeoutMs?: number;
 }
 
@@ -1016,6 +1063,7 @@ export const createReplay = async (req: ReplayRequest): Promise<ReplayState> => 
   if (!req.symbol) throw new Error("symbol required");
   const connection = await connect({
     sessionId: req.sessionId,
+    sessionSign: req.sessionSign,
     endpoint: req.endpoint,
     timeoutMs: req.timeoutMs,
   });
@@ -1404,6 +1452,7 @@ export const getIndustryMovers = async (req: IndustryMoversRequest) => {
 // === STREAM BOOTSTRAP (stateless helper for clients) ===
 export interface StreamBootstrapRequest {
   sessionId?: string;
+  sessionSign?: string;
   endpoint?: TradingviewEndpoint;
   symbol?: string;
   timeframe?: string | number;
@@ -1428,7 +1477,7 @@ export const getStreamBootstrap = async (
   const endpoint =
     req.endpoint && TRADINGVIEW_WS_ENDPOINTS[req.endpoint] ? req.endpoint : ("prodata" as TradingviewEndpoint);
   const wsUrl = TRADINGVIEW_WS_ENDPOINTS[endpoint];
-  const token = await getAuthToken(req.sessionId);
+  const token = await getAuthToken(req.sessionId, req.sessionSign);
   const chartSession = generateSessionId("cs");
   const quoteSession = generateSessionId("qs");
   const tf = req.timeframe ? validateTimeframe(req.timeframe) : "1D";
@@ -1637,7 +1686,16 @@ export const loginUser = async (req: LoginRequest): Promise<LoginResponse> => {
     // ignore
   }
   if (!sessionId) {
-    throw new Error(json?.error || "login failed (sessionid not returned)");
+    const raw = typeof json?.error === "string" ? json.error : "";
+    // TradingView's signin endpoint can return arbitrary strings (HTML,
+    // captcha challenge text, control chars). Strip control characters and
+    // cap length so the worker never echoes a hostile payload back to the
+    // caller as an error message.
+    const sanitized = raw
+      .replace(/[\x00-\x1f\x7f-\x9f]+/g, " ")
+      .trim()
+      .slice(0, 200);
+    throw new Error(sanitized || "login failed (sessionid not returned)");
   }
 
   return {
@@ -1770,6 +1828,7 @@ export interface ResolveSymbolRequest {
   symbol: string; // exchange-prefixed preferred
   endpoint?: TradingviewEndpoint;
   sessionId?: string;
+  sessionSign?: string;
   timeoutMs?: number;
 }
 
@@ -1795,6 +1854,7 @@ export const resolveSymbol = async (req: ResolveSymbolRequest): Promise<SymbolMe
   const chartSession = generateSessionId("cs");
   const connection = await connect({
     sessionId: req.sessionId,
+    sessionSign: req.sessionSign,
     endpoint: req.endpoint,
     timeoutMs: req.timeoutMs,
   });

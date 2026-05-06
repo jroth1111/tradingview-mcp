@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { listAllKVKeys, listAllR2Objects } from "./cache";
 import { FetchCoordinator } from "./fetch-coordinator";
 
 const makeKV = () => {
@@ -74,5 +75,51 @@ describe("FetchCoordinator", () => {
     expect(b.partial).toBeUndefined();
     expect(a.candles.length).toBeGreaterThan(0);
     expect(b.candles.length).toBe(a.candles.length);
+  });
+});
+
+describe("pagination helpers", () => {
+  it("reads every KV list page", async () => {
+    const kv = {
+      async list(opts?: { cursor?: string }) {
+        if (!opts?.cursor) {
+          return {
+            keys: [{ name: "meta:first" }],
+            list_complete: false,
+            cursor: "next",
+          };
+        }
+        return {
+          keys: [{ name: "meta:second" }],
+          list_complete: true,
+        };
+      },
+    } as unknown as KVNamespace;
+
+    const keys = await listAllKVKeys(kv, { prefix: "meta:" });
+
+    expect(keys.map((key) => key.name)).toEqual(["meta:first", "meta:second"]);
+  });
+
+  it("reads every R2 list page", async () => {
+    const bucket = {
+      async list(opts?: { cursor?: string }) {
+        if (!opts?.cursor) {
+          return {
+            objects: [{ key: "candles/one" }],
+            truncated: true,
+            cursor: "next",
+          };
+        }
+        return {
+          objects: [{ key: "candles/two" }],
+          truncated: false,
+        };
+      },
+    } as unknown as R2Bucket;
+
+    const objects = await listAllR2Objects(bucket, { prefix: "candles/" });
+
+    expect(objects.map((object) => object.key)).toEqual(["candles/one", "candles/two"]);
   });
 });

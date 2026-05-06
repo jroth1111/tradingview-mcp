@@ -45,6 +45,7 @@ type Frame =
 
 export interface RawWebSocketOptions {
   sessionId?: string;
+  sessionSign?: string;
   headers?: Record<string, string>;
   debug?: boolean;
 }
@@ -81,6 +82,12 @@ export class RawWebSocket {
 
     const key = secWebSocketKey();
     const path = `${this.url.pathname || "/"}${this.url.search || ""}`;
+    const cookie = this.opts.sessionId
+      ? this.opts.sessionSign
+        ? `sessionid=${this.opts.sessionId};sessionid_sign=${this.opts.sessionSign}`
+        : `sessionid=${this.opts.sessionId}`
+      : undefined;
+
     const headers: Record<string, string> = {
       Host: this.url.host,
       Upgrade: "websocket",
@@ -91,7 +98,7 @@ export class RawWebSocket {
       "User-Agent": UA,
       Pragma: "no-cache",
       "Cache-Control": "no-cache",
-      ...(this.opts.sessionId ? { Cookie: `sessionid=${this.opts.sessionId}` } : {}),
+      ...(cookie ? { Cookie: cookie } : {}),
       ...(this.opts.headers || {}),
     };
 

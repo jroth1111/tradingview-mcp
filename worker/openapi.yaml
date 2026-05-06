@@ -25,6 +25,11 @@ components:
       properties:
         error:
           type: string
+        category:
+          type: string
+          enum: [auth, network, rate_limit, upstream, bad_request, unknown]
+        retryable:
+          type: boolean
     Ok:
       type: object
       properties:

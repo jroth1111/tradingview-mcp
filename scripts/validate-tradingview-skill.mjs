@@ -28,6 +28,30 @@ for (const required of ["HMAC", "POST /admin/session", "stored Worker session is
   }
 }
 
+for (const required of ['retryable:true', 'category:"network"', "Network and upstream failures must not be treated as auth failures"]) {
+  if (!auth.includes(required)) {
+    throw new Error(`auth skill missing recovery requirement: ${required}`);
+  }
+}
+
+for (const required of ["retry with backoff", "Do not rotate credentials", "category:\"auth\""]) {
+  if (!skill.includes(required)) {
+    throw new Error(`skill missing retry/auth routing requirement: ${required}`);
+  }
+}
+
+for (const required of ["partial:true", "authSource", "fails closed"]) {
+  if (!skill.includes(required)) {
+    throw new Error(`skill missing response semantics requirement: ${required}`);
+  }
+}
+
+for (const required of ["epoch milliseconds", "5-minute skew window", "/admin", "/cache"]) {
+  if (!auth.includes(required)) {
+    throw new Error(`auth skill missing HMAC scope/timestamp requirement: ${required}`);
+  }
+}
+
 const coreImportRegex = /from\s+["']\.\.\/\.\.\/packages\/tradingview-core\/src["']/;
 if (!coreImportRegex.test(workerTradingview)) {
   throw new Error("worker/src/tradingview.ts must import from packages/tradingview-core/src");

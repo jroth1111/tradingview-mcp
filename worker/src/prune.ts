@@ -1,4 +1,4 @@
-import type { MetaRecord } from "./cache";
+import { listAllKVKeys, listAllR2Objects, type MetaRecord } from "./cache";
 
 const TOTALS_KEY = "_cache:totals";
 
@@ -8,9 +8,9 @@ export const pruneCache = async (kv: KVNamespace, bucket: R2Bucket, maxTotalByte
   const current = totals?.approx_bytes || 0;
   if (current <= maxTotalBytes) return { pruned: 0, totalBytes: current };
 
-  const metas = await kv.list({ prefix: "meta:" });
+  const metas = await listAllKVKeys(kv, { prefix: "meta:" });
   const items: { key: string; ts: number; approx: number }[] = [];
-  for (const k of metas.keys) {
+  for (const k of metas) {
     const rec = await kv.get<MetaRecord>(k.name, { type: "json" });
     if (!rec) continue;
     const ts = rec.last_accessed ? Date.parse(rec.last_accessed) : rec.last_updated ? Date.parse(rec.last_updated) : 0;
@@ -28,8 +28,8 @@ export const pruneCache = async (kv: KVNamespace, bucket: R2Bucket, maxTotalByte
     await kv.delete(item.key);
     await kv.delete(`hot:${sym}:${tf}`);
     const prefix = `candles/${sym}/${tf}/`;
-    const listed = await bucket.list({ prefix });
-    for (const obj of listed.objects || []) {
+    const listed = await listAllR2Objects(bucket, { prefix });
+    for (const obj of listed) {
       if (obj?.key) await bucket.delete(obj.key);
     }
     running -= item.approx;

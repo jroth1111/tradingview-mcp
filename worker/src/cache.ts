@@ -1,5 +1,6 @@
 import { backfillCandles, type Candle, validateTimeframe } from "./tradingview";
 import { generateMockCandles } from "./upstream-mock";
+import { classifyUpstreamError, toUpstreamError, type ClassifiedUpstreamError } from "./upstream-error";
 
 export const CHUNK_SIZE = 5000;
 
@@ -153,6 +154,38 @@ export const splitChunks = (candles: Candle[], chunkSize: number = CHUNK_SIZE): 
 export const chunkKey = (symbol: string, timeframe: string, start: number, end: number) =>
   `candles/${symbol}/${timeframe}/chunk_${start}_${end}.json.gz`;
 
+export const listAllKVKeys = async (
+  kv: KVNamespace,
+  opts: { prefix?: string } = {},
+): Promise<KVNamespaceListKey<unknown>[]> => {
+  const keys: KVNamespaceListKey<unknown>[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await kv.list({ ...opts, cursor });
+    keys.push(...page.keys);
+    if (page.list_complete) break;
+    cursor = page.cursor;
+    if (!cursor) break;
+  } while (cursor);
+  return keys;
+};
+
+export const listAllR2Objects = async (
+  bucket: R2Bucket,
+  opts: { prefix?: string } = {},
+): Promise<R2Object[]> => {
+  const objects: R2Object[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await bucket.list({ ...opts, cursor });
+    objects.push(...page.objects);
+    if (!page.truncated) break;
+    cursor = page.cursor;
+    if (!cursor) break;
+  } while (cursor);
+  return objects;
+};
+
 // Chunk selectors -----------------------------------------------------------
 const candlesFromChunks = async (bucket: R2Bucket, refs: ChunkRef[]): Promise<Candle[]> => {
   const out: Candle[] = [];
@@ -183,6 +216,7 @@ const sliceByRange = (candles: Candle[], from?: number, to?: number): Candle[] =
 // Upstream gap fetcher ------------------------------------------------------
 export interface UpstreamOptions {
   sessionId?: string;
+  sessionSign?: string;
   endpoint?: string;
   delayMs?: number;
 }
@@ -206,18 +240,19 @@ export const fetchGapFromTradingView = async (
         total,
         endpoint: opts.endpoint as any,
         sessionId: opts.sessionId,
+        sessionSign: opts.sessionSign,
         delayMs: opts.delayMs,
       });
     } catch (err: any) {
-      const status = err?.status || err?.code;
-      if (i === maxAttempts - 1) throw err;
-      if (status === 429 || (status && status >= 500)) {
+      const classified = classifyUpstreamError(err, "TradingView gap fetch failed");
+      if (i === maxAttempts - 1) throw toUpstreamError(err, "TradingView gap fetch failed");
+      if (classified.retryable) {
         const backoff = Math.min(1000 * 2 ** i, 5000);
         const jitter = Math.random() * 200;
         await new Promise((r) => setTimeout(r, backoff + jitter));
         continue;
       }
-      throw err;
+      throw toUpstreamError(err, "TradingView gap fetch failed");
     }
   }
   return [];
@@ -235,6 +270,13 @@ export interface CacheRequest extends UpstreamOptions {
   maxTotalBytes?: number;
   statsSampleRate?: number;
   mock?: boolean;
+}
+
+export interface CacheResult {
+  candles: Candle[];
+  meta: MetaRecord;
+  partial?: boolean;
+  upstreamError?: ClassifiedUpstreamError;
 }
 
 const TOTALS_KEY = "_cache:totals";
@@ -258,9 +300,9 @@ const logMetric = (type: string, detail: any, sampleRate: number = 10) => {
 
 // Snapshot helpers ----------------------------------------------------------
 export const snapshotMeta = async (kv: KVNamespace, bucket: R2Bucket) => {
-  const metas = await kv.list({ prefix: "meta:" });
+  const metas = await listAllKVKeys(kv, { prefix: "meta:" });
   const records: MetaRecord[] = [];
-  for (const k of metas.keys) {
+  for (const k of metas) {
     const rec = await kv.get<MetaRecord>(k.name, { type: "json" });
     if (rec) records.push(rec);
   }
@@ -324,7 +366,7 @@ export const getCachedCandles = async (
   kv: KVNamespace,
   bucket: R2Bucket,
   req: CacheRequest,
-): Promise<{ candles: Candle[]; meta: MetaRecord; partial?: boolean }> => {
+): Promise<CacheResult> => {
   const symbol = normalizeSymbol(req.symbol);
   const timeframe = normalizeTimeframe(req.timeframe);
   const meta = await getMeta(kv, symbol, timeframe);
@@ -378,13 +420,15 @@ export const getCachedCandles = async (
       logMetric("upstream_fetch", { symbol, timeframe, need, gap });
       const batch = await fetchGapFromTradingView(symbol, timeframe, need, req);
       fetched = mergeCandles(fetched, batch);
-    } catch {
+    } catch (err) {
+      const upstreamError = classifyUpstreamError(err, "TradingView gap fetch failed");
       await maybeBumpStats(kv, false, req.statsSampleRate);
-      logMetric("upstream_fail", { symbol, timeframe });
+      logMetric("upstream_fail", { symbol, timeframe, category: upstreamError.category });
       return {
         candles: sliceByRange(existing, req.from, req.to),
         meta,
         partial: true,
+        upstreamError,
       };
     }
   }
@@ -459,7 +503,7 @@ export const getCachedCandles = async (
     await updateTotalsAndMaybeEvict(kv, bucket, savedMeta!, req.maxTotalBytes, delta);
   }
   const scoped = sliceByRange(merged, req.from, req.to);
-  await maybeBumpStats(kv, false, req.statsSampleRate); // miss → required fetch
+  await maybeBumpStats(kv, false, req.statsSampleRate); // miss -> required fetch
   return { candles: scoped, meta: savedMeta!, partial: false };
 };
 
@@ -480,9 +524,9 @@ const updateTotalsAndMaybeEvict = async (
   if (nextBytes <= maxTotalBytes) return;
 
   // Best-effort eviction: remove oldest metas until under limit
-  const metas = await kv.list({ prefix: "meta:" });
+  const metas = await listAllKVKeys(kv, { prefix: "meta:" });
   const items: { key: string; ts: number; approx: number }[] = [];
-  for (const k of metas.keys) {
+  for (const k of metas) {
     const rec = await kv.get<MetaRecord>(k.name, { type: "json" });
     if (!rec) continue;
     const ts = rec.last_accessed ? Date.parse(rec.last_accessed) : rec.last_updated ? Date.parse(rec.last_updated) : 0;
@@ -497,8 +541,8 @@ const updateTotalsAndMaybeEvict = async (
     const tf = parts[2];
     await kv.delete(item.key);
     const prefix = `candles/${sym}/${tf}/`;
-    const listed = await bucket.list({ prefix });
-    for (const obj of listed.objects || []) {
+    const listed = await listAllR2Objects(bucket, { prefix });
+    for (const obj of listed) {
       if (obj?.key) await bucket.delete(obj.key);
     }
     running -= item.approx;

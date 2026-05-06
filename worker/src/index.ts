@@ -38,7 +38,14 @@ import {
   type SearchRequest,
   type IndicatorSearchRequest,
 } from "./tradingview";
-import { getCachedCandles, getMeta, restoreMeta, snapshotMeta, type MetaRecord } from "./cache";
+import {
+  getCachedCandles,
+  getMeta,
+  listAllR2Objects,
+  restoreMeta,
+  snapshotMeta,
+  type MetaRecord,
+} from "./cache";
 import { FetchCoordinator } from "./fetch-coordinator";
 import { runSelfTests } from "./selftest";
 import { runIntegration } from "./tests/integration";
@@ -51,19 +58,53 @@ import {
   setStoredSession,
   type StoredSession,
 } from "./auth-store";
+import { classifyUpstreamError } from "./upstream-error";
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
 
 app.get("/health", (c) => c.json({ ok: true }));
 
-const isAuthError = (err: any) => {
-  const msg = (err?.message || "").toLowerCase();
-  return (
-    msg.includes("sessionid") ||
-    msg.includes("expired") ||
-    msg.includes("unauthorized") ||
-    msg.includes("forbidden")
-  );
+const isAuthError = (err: any) => classifyUpstreamError(err).category === "auth";
+
+const errorPayload = (err: unknown, fallback: string) => {
+  const classified = classifyUpstreamError(err, fallback);
+  return {
+    body: {
+      error: classified.message,
+      category: classified.category,
+      retryable: classified.retryable,
+    },
+    status: classified.status,
+    classified,
+  };
+};
+
+const routeError = (c: any, err: unknown, fallback = "bad request") => {
+  const { body, status } = errorPayload(err, fallback);
+  return c.json(body, status);
+};
+
+const markStoredSessionSuccess = async (
+  kv: KVNamespace,
+  session: { source: "provided" | "stored" | "none" },
+) => {
+  if (session.source === "stored") {
+    await clearAuthBlock(kv);
+  }
+};
+
+class QueryParamError extends Error {
+  constructor(public field: string, public value: string) {
+    super(`invalid ${field}: ${value}`);
+    this.name = "QueryParamError";
+  }
+}
+
+const parseFiniteNumber = (raw: string | null | undefined, field: string): number | undefined => {
+  if (raw === null || raw === undefined || raw === "") return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) throw new QueryParamError(field, raw);
+  return n;
 };
 
 const textEncoder = new TextEncoder();
@@ -72,6 +113,16 @@ const hex = (buf: ArrayBuffer) =>
   Array.from(new Uint8Array(buf))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+
+const hexToBytes = (input: string): Uint8Array | null => {
+  if (input.length === 0 || input.length % 2 !== 0) return null;
+  if (!/^[0-9a-fA-F]+$/.test(input)) return null;
+  const bytes = new Uint8Array(input.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(input.substr(i * 2, 2), 16);
+  }
+  return bytes;
+};
 
 let cachedHmacKey: CryptoKey | null = null;
 let cachedSecret: string | null = null;
@@ -106,6 +157,9 @@ const verifyHmacAuth = async (c: any): Promise<Response | null> => {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
+  const sigBytes = hexToBytes(signature);
+  if (!sigBytes) return c.json({ error: "Unauthorized" }, 401);
+
   const timestamp = c.req.header("x-timestamp");
   if (!timestamp) return c.json({ error: "Missing timestamp" }, 401);
 
@@ -124,10 +178,13 @@ const verifyHmacAuth = async (c: any): Promise<Response | null> => {
 
   const canonical = [method, url.pathname + url.search, bodyHash, timestamp].join("\n");
   const key = await getHmacKey(secret);
-  const expected = await crypto.subtle.sign("HMAC", key, textEncoder.encode(canonical));
-  const expectedHex = hex(expected);
+  const signatureBytes = sigBytes.buffer.slice(
+    sigBytes.byteOffset,
+    sigBytes.byteOffset + sigBytes.byteLength,
+  ) as ArrayBuffer;
+  const valid = await crypto.subtle.verify("HMAC", key, signatureBytes, textEncoder.encode(canonical));
 
-  if (expectedHex !== signature) {
+  if (!valid) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   return null;
@@ -151,7 +208,7 @@ app.get("/admin/session/status", async (c) => {
   if (authResp) return authResp;
   const stored = await getStoredSession(c.env.CACHE_META);
   if (!stored) return c.json({ ok: false, reason: "not set" });
-  if (isBlocked(stored)) return c.json({ ok: false, reason: "blocked", stored });
+  const wasBlocked = isBlocked(stored);
   try {
     const token = await getAuthToken(stored.sessionId, stored.sessionSign);
     if (token === "unauthorized_user_token") {
@@ -160,14 +217,25 @@ app.get("/admin/session/status", async (c) => {
         timeframe: SESSION_STATUS_CANARY.timeframe,
         amount: SESSION_STATUS_CANARY.amount,
         sessionId: stored.sessionId,
+        sessionSign: stored.sessionSign,
         timeoutMs: SESSION_STATUS_CANARY.timeoutMs,
       });
       if (candles.length === 0) throw new Error("Wrong or expired sessionid/sessionid_sign");
     }
-    return c.json({ ok: true, stored });
+    const recovered = await clearAuthBlock(c.env.CACHE_META);
+    return c.json({ ok: true, recovered: wasBlocked, stored: recovered || stored });
   } catch (err: any) {
-    await markAuthFailure(c.env.CACHE_META);
-    return c.json({ ok: false, reason: err?.message || "auth failure", stored });
+    const classified = classifyUpstreamError(err, "auth failure");
+    if (classified.category === "auth") {
+      await markAuthFailure(c.env.CACHE_META);
+    }
+    return c.json({
+      ok: false,
+      reason: classified.message,
+      category: classified.category,
+      retryable: classified.retryable,
+      stored,
+    });
   }
 });
 
@@ -209,6 +277,7 @@ app.post("/v1/candles", async (c) => {
       amount?: number;
       endpoint?: CandleRequest["endpoint"];
       sessionId?: string;
+      sessionSign?: string;
     };
 
     if (!body?.symbols || !Array.isArray(body.symbols) || body.symbols.length === 0) {
@@ -220,6 +289,7 @@ app.post("/v1/candles", async (c) => {
         try {
           const session = await resolveSession(c.env.CACHE_META, {
             sessionId: body.sessionId,
+            sessionSign: body.sessionSign,
           });
           const candles = await getCandles({
             symbol,
@@ -227,17 +297,22 @@ app.post("/v1/candles", async (c) => {
             timeframe: body.timeframe,
             endpoint: body.endpoint,
             sessionId: session.sessionId,
+            sessionSign: session.sessionSign,
           });
+          await markStoredSessionSuccess(c.env.CACHE_META, session);
           return { symbol, candles, authSource: session.source };
         } catch (err: any) {
-          return { symbol, error: err?.message ?? "unknown error" };
+          const { body: error, classified } = errorPayload(err, "unknown error");
+          if (classified.category === "auth") await markAuthFailure(c.env.CACHE_META);
+          return { symbol, ...error };
         }
       }),
     );
 
     return c.json({ results });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -248,14 +323,28 @@ app.get("/cache/:symbol/:tf", async (c) => {
   const symbol = c.req.param("symbol");
   const tf = c.req.param("tf");
   const url = new URL(c.req.url);
-  const from = url.searchParams.get("from");
-  const to = url.searchParams.get("to");
-  const total = url.searchParams.get("total");
   const providedSessionId = url.searchParams.get("sessionId") || undefined;
   const endpoint = url.searchParams.get("endpoint") || undefined;
-  const maxBytes = url.searchParams.get("maxBytes");
-  const maxTotal = url.searchParams.get("maxTotalBytes") || c.env.CACHE_MAX_TOTAL_BYTES;
-  const maxFetches = url.searchParams.get("maxFetchesPerMinute") || c.env.CACHE_MAX_FETCHES_PER_MINUTE;
+  const maxTotalRaw = url.searchParams.get("maxTotalBytes") || c.env.CACHE_MAX_TOTAL_BYTES;
+  const maxFetchesRaw = url.searchParams.get("maxFetchesPerMinute") || c.env.CACHE_MAX_FETCHES_PER_MINUTE;
+
+  let from: number | undefined;
+  let to: number | undefined;
+  let total: number | undefined;
+  let maxApproxBytes: number | undefined;
+  let maxTotalBytes: number | undefined;
+  let maxFetchesPerMinute: number | undefined;
+  try {
+    from = parseFiniteNumber(url.searchParams.get("from"), "from");
+    to = parseFiniteNumber(url.searchParams.get("to"), "to");
+    total = parseFiniteNumber(url.searchParams.get("total"), "total");
+    maxApproxBytes = parseFiniteNumber(url.searchParams.get("maxBytes"), "maxBytes");
+    maxTotalBytes = parseFiniteNumber(maxTotalRaw, "maxTotalBytes");
+    maxFetchesPerMinute = parseFiniteNumber(maxFetchesRaw, "maxFetchesPerMinute");
+  } catch (err: any) {
+    if (err instanceof QueryParamError) return c.json({ error: err.message }, 400);
+    throw err;
+  }
 
   try {
     const session = await resolveSession(c.env.CACHE_META, { sessionId: providedSessionId });
@@ -267,28 +356,41 @@ app.get("/cache/:symbol/:tf", async (c) => {
       body: JSON.stringify({
         symbol,
         timeframe: tf,
-        from: from ? Number(from) : undefined,
-        to: to ? Number(to) : undefined,
-        total: total ? Number(total) : undefined,
+        from,
+        to,
+        total,
         sessionId: session.sessionId,
+        sessionSign: session.sessionSign,
         endpoint,
-        maxApproxBytes: maxBytes ? Number(maxBytes) : undefined,
-        maxTotalBytes: maxTotal ? Number(maxTotal) : undefined,
-        maxFetchesPerMinute: maxFetches ? Number(maxFetches) : undefined,
+        maxApproxBytes,
+        maxTotalBytes,
+        maxFetchesPerMinute,
       }),
     }));
     const result = (await cacheResp.json()) as any;
-    return c.json({
+    const responseBody = {
       candles: result.candles,
       meta: result.meta,
       partial: result.partial,
+      upstreamError: result.upstreamError,
       authSource: session.source,
-    });
+    };
+    if (result.upstreamError) {
+      if (result.upstreamError.category === "auth") {
+        await markAuthFailure(c.env.CACHE_META);
+      }
+      if (!result.candles?.length) {
+        return c.json(responseBody, result.upstreamError.status || 503);
+      }
+    } else {
+      await markStoredSessionSuccess(c.env.CACHE_META, session);
+    }
+    return c.json(responseBody);
   } catch (err: any) {
     if (providedSessionId === undefined && isAuthError(err)) {
       await markAuthFailure(c.env.CACHE_META);
     }
-    return c.json({ error: err?.message ?? "cache error" }, 500);
+    return routeError(c, err, "cache error");
   }
 });
 
@@ -301,7 +403,7 @@ app.get("/cache/:symbol/:tf/status", async (c) => {
     const meta = await getMeta(c.env.CACHE_META, symbol, tf);
     return c.json({ meta });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "status error" }, 500);
+    return routeError(c, err, "status error");
   }
 });
 
@@ -317,8 +419,8 @@ app.post("/cache/:symbol/:tf/invalidate", async (c) => {
     await c.env.CACHE_META.delete(`hot:${symbol}:${tf}`);
     // Best-effort: delete chunk objects with prefix
     const prefix = `candles/${symbol}/${tf}/`;
-    const listed = await c.env.CACHE_DATA.list({ prefix });
-    for (const obj of listed.objects || []) {
+    const listed = await listAllR2Objects(c.env.CACHE_DATA, { prefix });
+    for (const obj of listed) {
       if (obj?.key) {
         await c.env.CACHE_DATA.delete(obj.key);
       }
@@ -333,7 +435,7 @@ app.post("/cache/:symbol/:tf/invalidate", async (c) => {
     }
     return c.json({ ok: true });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "invalidate error" }, 500);
+    return routeError(c, err, "invalidate error");
   }
 });
 
@@ -344,7 +446,7 @@ app.post("/cache/snapshot", async (c) => {
     const key = await snapshotMeta(c.env.CACHE_META, c.env.CACHE_DATA);
     return c.json({ ok: true, key });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "snapshot error" }, 500);
+    return routeError(c, err, "snapshot error");
   }
 });
 
@@ -357,7 +459,7 @@ app.post("/cache/restore", async (c) => {
     const res = await restoreMeta(c.env.CACHE_META, c.env.CACHE_DATA, body.key);
     return c.json({ ok: true, ...res });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "restore error" }, 500);
+    return routeError(c, err, "restore error");
   }
 });
 
@@ -384,10 +486,20 @@ app.post("/v1/quotes", async (c) => {
     if (!body?.symbols || !Array.isArray(body.symbols) || body.symbols.length === 0) {
       return c.json({ error: "symbols array required" }, 400);
     }
-    const result = await getQuotes(body);
-    return c.json({ result });
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await getQuotes({
+      ...body,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -444,7 +556,7 @@ app.post("/v1/ta", async (c) => {
     const result = await getTechnicalAnalysis(body);
     return c.json({ result });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -462,10 +574,11 @@ app.post("/v1/indicators/private", async (c) => {
       sessionId: session.sessionId,
       sessionSign: session.sessionSign,
     });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
     return c.json({ result, authSource: session.source });
   } catch (err: any) {
     if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -479,18 +592,26 @@ app.post("/v1/replay", async (c) => {
       startTime?: number;
       endpoint?: string;
       sessionId?: string;
+      sessionSign?: string;
     };
     if (!body?.symbol) return c.json({ error: "symbol required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
     const state = await createReplay({
       symbol: body.symbol,
       timeframe: body.timeframe,
       startTime: body.startTime,
       endpoint: body.endpoint as any,
-      sessionId: (await resolveSession(c.env.CACHE_META, { sessionId: body.sessionId })).sessionId,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
     });
-    return c.json({ state });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ state, authSource: session.source });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -509,7 +630,7 @@ app.post("/v1/news", async (c) => {
     const items = await fetchNews(body);
     return c.json({ symbol: body.symbol, items });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -522,7 +643,7 @@ app.post("/v1/news/content", async (c) => {
     const content = await fetchNewsContent(body);
     return c.json({ content });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -538,7 +659,7 @@ app.post("/v1/fundamentals", async (c) => {
     const result = await fetchFundamentals(body);
     return c.json(result.status === "success" ? { data: result.data } : { error: result.error });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -557,7 +678,7 @@ app.post("/v1/scan", async (c) => {
     const result = await runScan(body);
     return c.json({ result });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -565,12 +686,17 @@ app.post("/v1/auth-token", async (c) => {
   try {
     const authResp = await verifyHmacAuth(c);
     if (authResp) return authResp;
-    const body = (await c.req.json()) as { sessionId?: string };
-    const session = await resolveSession(c.env.CACHE_META, { sessionId: body.sessionId });
-    const token = await getAuthToken(session.sessionId);
+    const body = (await c.req.json()) as { sessionId?: string; sessionSign?: string };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const token = await getAuthToken(session.sessionId, session.sessionSign);
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
     return c.json({ token, authSource: session.source });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -586,7 +712,7 @@ app.post("/v1/movers", async (c) => {
     const movers = await getMovers(body);
     return c.json({ movers });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -599,7 +725,7 @@ app.post("/v1/ideas", async (c) => {
     const ideas = await fetchIdeas(body);
     return c.json({ ideas });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -617,10 +743,11 @@ app.post("/v1/me", async (c) => {
       sessionId: session.sessionId,
       sessionSign: session.sessionSign,
     });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
     return c.json({ profile, authSource: session.source });
   } catch (err: any) {
     if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -638,7 +765,7 @@ app.post("/v1/minds", async (c) => {
     const result = await fetchMinds(body);
     return c.json(result);
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -651,7 +778,7 @@ app.post("/v1/ta/summary", async (c) => {
     const summary = await getTaSummary(body.symbol, body.timeframe || "1D");
     return c.json({ symbol: body.symbol, timeframe: body.timeframe || "1D", summary });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -663,17 +790,24 @@ app.post("/v1/resolve", async (c) => {
       symbol: string;
       endpoint?: string;
       sessionId?: string;
+      sessionSign?: string;
     };
     if (!body?.symbol) return c.json({ error: "symbol required" }, 400);
-    const session = await resolveSession(c.env.CACHE_META, { sessionId: body.sessionId });
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
     const meta = await resolveSymbol({
       symbol: body.symbol,
       endpoint: body.endpoint as any,
       sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
     });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
     return c.json({ meta, authSource: session.source });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -689,7 +823,7 @@ app.post("/v1/markets/overview", async (c) => {
     const overview = await getMarketOverview(body);
     return c.json({ overview });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -707,7 +841,7 @@ app.post("/v1/markets/sector-movers", async (c) => {
     const movers = await getSectorMovers(body);
     return c.json({ movers });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -725,7 +859,7 @@ app.post("/v1/markets/industry-movers", async (c) => {
     const movers = await getIndustryMovers(body);
     return c.json({ movers });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -745,7 +879,7 @@ app.post("/v1/login", async (c) => {
     const result = await loginUser(body);
     return c.json({ result });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -762,7 +896,7 @@ app.post("/v1/calendar/dividends", async (c) => {
     const events = await getDividendCalendar(body);
     return c.json({ events });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -779,7 +913,7 @@ app.post("/v1/calendar/earnings", async (c) => {
     const events = await getEarningsCalendar(body);
     return c.json({ events });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -794,21 +928,29 @@ app.post("/v1/stream/bootstrap", async (c) => {
     if (authResp) return authResp;
     const body = (await c.req.json()) as {
       sessionId?: string;
+      sessionSign?: string;
       endpoint?: string;
       symbol?: string;
       timeframe?: string | number;
       fields?: string[];
     };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
     const bootstrap = await getStreamBootstrap({
-      sessionId: (await resolveSession(c.env.CACHE_META, { sessionId: body.sessionId })).sessionId,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
       endpoint: body.endpoint as any,
       symbol: body.symbol,
       timeframe: body.timeframe,
       fields: body.fields,
     });
-    return c.json({ bootstrap });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ bootstrap, authSource: session.source });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -821,7 +963,7 @@ app.post("/v1/search", async (c) => {
     const result = await searchSymbols(body);
     return c.json({ result });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -836,21 +978,29 @@ app.post("/v1/study", async (c) => {
       inputs?: Record<string, any>;
       endpoint?: string;
       sessionId?: string;
+      sessionSign?: string;
     };
     if (!body?.symbol || !body?.studyId) {
       return c.json({ error: "symbol and studyId required" }, 400);
     }
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
     const result = await runStudy({
       symbol: body.symbol,
       studyId: body.studyId,
       script: body.script,
       inputs: body.inputs,
       endpoint: body.endpoint as any,
-      sessionId: (await resolveSession(c.env.CACHE_META, { sessionId: body.sessionId })).sessionId,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
     });
-    return c.json({ result });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -864,20 +1014,28 @@ app.post("/v1/backfill", async (c) => {
       total?: number;
       endpoint?: string;
       sessionId?: string;
+      sessionSign?: string;
       delayMs?: number;
     };
     if (!body?.symbol) return c.json({ error: "symbol required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
     const candles = await backfillCandles({
       symbol: body.symbol,
       timeframe: body.timeframe,
       total: body.total,
       endpoint: body.endpoint as any,
-      sessionId: (await resolveSession(c.env.CACHE_META, { sessionId: body.sessionId })).sessionId,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
       delayMs: body.delayMs,
     });
-    return c.json({ symbol: body.symbol, candles });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ symbol: body.symbol, candles, authSource: session.source });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -890,7 +1048,7 @@ app.post("/v1/indicators/search", async (c) => {
     const result = await searchIndicators(body);
     return c.json({ result });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    return routeError(c, err, "bad request");
   }
 });
 
@@ -914,9 +1072,11 @@ app.post("/v1/indicators/meta", async (c) => {
       sessionId: session.sessionId,
       sessionSign: session.sessionSign,
     });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
     return c.json({ result, authSource: session.source });
   } catch (err: any) {
-    return c.json({ error: err?.message ?? "bad request" }, 400);
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
   }
 });
 
