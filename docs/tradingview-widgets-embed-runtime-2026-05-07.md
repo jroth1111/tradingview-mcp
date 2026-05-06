@@ -158,7 +158,7 @@ Missing or unmodeled surfaces:
 
 1. Continue Advanced Chart controlled postMessage capture only if socket-frame deltas are needed; `set-symbol` parent `quoteUpdate` behavior is proven and `set-interval` handler semantics are bundle-verified.
 2. Run a longer timeline/news interaction capture or decompile `embed_timeline_widget` request builders.
-3. Find a populated `chartevents-reuters.tradingview.com/events` window/country set for events-widget response schema.
+3. Probe event-history details through `ECONOMIC_CALENDAR_URL related_events?eventId=...&countback=...`; the primary populated Reuters events schema is now captured.
 4. Probe more Widget Sheriff parameters and negative cases beyond missing-origin validation.
 5. Capture sanitized scanner request bodies for crypto/forex/bond/futures widget presets, then compare them with product-page scanner bodies already captured in `docs/tradingview-product-runtime-capture-2026-05-07.md`.
 6. Decide whether widgets should become a first-class Worker route family or remain mapped onto existing scanner/chart/news/calendar primitives with a metadata route.

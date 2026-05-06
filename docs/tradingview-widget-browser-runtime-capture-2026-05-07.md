@@ -234,8 +234,33 @@ Events widget runtime uses chart-events REST:
 - `GET chartevents-reuters.tradingview.com/events?from=...&to=...&countries=...` was issued during first load.
 - Public pushstream opened but stayed idle.
 - A direct public probe of `GET /events?from=2026-05-01&to=2026-05-07&countries=us` returned HTTP 200 `application/json` with `{"status":"no_data"}`.
+- Bundle extraction of `embed_events_widget.a24887de52eaaa77c397.js` showed the Reuters path is constructed with ISO timestamps from `new Date(...).toISOString()` and uppercase `countries`/`currencies`; lowercase date-only guesses are invocation-shape misses, not evidence of no data.
+- A direct public probe of `GET /events?from=2026-05-01T00:00:00.000Z&to=2026-06-06T00:00:00.000Z&countries=US&minImportance=1` returned HTTP 200 `{"status":"ok"}` with 27 rows.
 
-The direct probe proves public reachability and envelope shape, not a populated event schema. Populate it with a known event window/country set before designing Worker response types.
+Populated event row fields observed across that response:
+
+```json
+{
+  "actual": "number|null",
+  "comment": "string",
+  "country": "string",
+  "currency": "string",
+  "date": "ISO timestamp string",
+  "forecast": "number|null",
+  "id": "string",
+  "importance": "number",
+  "indicator": "string",
+  "link": "string",
+  "period": "string",
+  "previous": "number|null",
+  "scale": "string",
+  "source": "string",
+  "title": "string",
+  "unit": "string"
+}
+```
+
+Related-event history path from the same bundle: `GET ${ECONOMIC_CALENDAR_URL}related_events?eventId=...&countback=8`, returning `{status:"ok", result:[...]}` when available. That path is an economic-calendar host path, not the Reuters widget host.
 
 ### Widget Sheriff
 
@@ -288,7 +313,7 @@ Existing Worker primitives overlap with parts of this behavior (`quotes`, generi
 
 - Advanced Chart postMessage socket-frame deltas after `set-symbol`/`set-interval`; parent event behavior and interval handler semantics are now proven or bundle-verified.
 - Longer timeline/news interaction capture or decompiled request-builder proof.
-- Populated chart-events response schema probe for events widget.
+- Broader event-history/related-events probes after the populated Reuters event schema.
 - Broader Widget Sheriff parameter exploration beyond missing-origin validation.
 - Additional widget-specific scanner bodies for crypto/forex/bond/futures presets beyond the captured stock screener and stock heatmap defaults.
 - Worker design decision: first-class `/v1/widgets/*` metadata/runtime routes vs mapping widgets onto existing scanner/chart/news/calendar primitives.
