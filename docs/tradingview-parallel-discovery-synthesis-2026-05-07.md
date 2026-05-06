@@ -166,6 +166,8 @@ The next wave should use either more available agent slots or serial local captu
 5. WebSocket UI flows: replay, deep backtesting, pushstream triggers, charts-polygon intended trigger.
 6. Paired auth probes: same request shape with and without cookies for every read endpoint promoted from HAR evidence.
 
+Follow-up direct probe artifact: `docs/tradingview-pine-calendar-direct-probes-2026-05-07.md` promotes markets-earnings, IPO calendar, related-symbols, bond details, Pine versions, and Pine translate to unauthenticated-achievable for the probed read-only shapes.
+
 ## Completion Audit
 
 The full rediscovery objective is not complete. The parallel pass materially reduced unknowns, but remaining open surfaces require authenticated UI state, explicit user approval for mutations, or deeper bundle/request-builder recovery.

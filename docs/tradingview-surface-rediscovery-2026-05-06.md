@@ -16,6 +16,7 @@
 - Options runtime capture: `docs/tradingview-options-runtime-capture-2026-05-07.md`
 - Parallel discovery synthesis: `docs/tradingview-parallel-discovery-synthesis-2026-05-07.md`
 - Product runtime capture: `docs/tradingview-product-runtime-capture-2026-05-07.md`
+- Pine/calendar direct probes: `docs/tradingview-pine-calendar-direct-probes-2026-05-07.md`
 - Scope not yet covered: authenticated browser network capture, plan-gated UI paths, full WebSocket frame capture, source maps, account-specific watchlists/layouts/alerts, mobile app traffic, and all locale/product pages beyond sampled pages
 
 This is not a completeness claim. The purpose of this pass is to turn the unknown-unknown workflow into durable evidence and identify the next probes required to keep rediscovering surfaces when TradingView changes.
@@ -225,9 +226,10 @@ Repo support:
 4. Bundle expansion pass: fetched product-specific pages for heatmaps, economic calendar, yield curves, macro maps, options, portfolio, paper trading, widgets, Pine screener, CEX/DEX screeners, and compared new bundle chunks against this baseline. Options first-load runtime request shapes are now captured in `docs/tradingview-options-runtime-capture-2026-05-07.md`. Current expansion artifact: `docs/tradingview-surface-expansion-2026-05-06.md`.
 5. WebSocket protocol pass: direct unauthenticated probes captured `data`, `prodata`, `history-data`, and `widgetdata` chart/quote/candle frame names; browser chart capture added public `pushstream` and normal chart lifecycle/study/tickmark message names. Current artifacts: `docs/tradingview-websocket-rediscovery-2026-05-06.md` and `docs/tradingview-browser-websocket-capture-2026-05-07.md`. Browser replay/deep-backtesting and authenticated payload-schema capture remain open.
 6. Product runtime pass: clean-browser capture promoted ETF/crypto heatmaps and CEX/DEX/bond/ETF screeners from static/page leads to public scanner/metainfo/enum runtime surfaces in `docs/tradingview-product-runtime-capture-2026-05-07.md`.
-7. Parallel surface-family pass: six read-only explorers plus local news/community/widget inspection synthesized into `docs/tradingview-parallel-discovery-synthesis-2026-05-07.md`; platform thread limit prevented launching all ten proposed agents at once.
-8. Worker gap implementation planning: group additions by authority boundary: chart/session protocol, screeners/storage, Pine/script, calendar/macro, alerts/notifications, watchlists/layouts, options/portfolio/paper.
-9. Robustness pass: every new upstream integration must preserve error categories `network`, `rate_limit`, `auth`, `upstream`, `bad_request`, and should retry network failures without downgrading capability state.
+7. Pine/calendar direct pass: exact no-cookie replay of safe HAR scanner shapes promoted markets-earnings, IPO calendar, related-symbols, bond details, Pine versions, and Pine translate to unauthenticated-achievable in `docs/tradingview-pine-calendar-direct-probes-2026-05-07.md`.
+8. Parallel surface-family pass: six read-only explorers plus local news/community/widget inspection synthesized into `docs/tradingview-parallel-discovery-synthesis-2026-05-07.md`; platform thread limit prevented launching all ten proposed agents at once.
+9. Worker gap implementation planning: group additions by authority boundary: chart/session protocol, screeners/storage, Pine/script, calendar/macro, alerts/notifications, watchlists/layouts, options/portfolio/paper.
+10. Robustness pass: every new upstream integration must preserve error categories `network`, `rate_limit`, `auth`, `upstream`, `bad_request`, and should retry network failures without downgrading capability state.
 
 ## Runtime Capture Tooling
 
