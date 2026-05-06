@@ -11,6 +11,8 @@
 
 This pass upgrades widgets/embeds from static route leads to live public runtime evidence. It does not claim exhaustive request-schema coverage for every interactive widget state; it records the first-class docs/routes/scripts/iframe shells and the host/entry-script surfaces to use for the next capture wave.
 
+Follow-up browser runtime capture: `docs/tradingview-widget-browser-runtime-capture-2026-05-07.md` promotes representative widgets from shell/bundle evidence to live XHR/WebSocket evidence.
+
 ## Probe Record
 
 | Probe | Source / command class | Result | Evidence level |
@@ -20,6 +22,7 @@ This pass upgrades widgets/embeds from static route leads to live public runtime
 | External embedding script fetch | `s3.tradingview.com/external-embedding/embed-widget-*.js` and `tv.js` | 9 docs-linked scripts returned HTTP 200 | live public script |
 | Common embed script HEAD probes | guessed `embed-widget-{id}.js` names on S3 | 19 common widget scripts returned HTTP 200; one guessed script name returned 403 | live public route-probe |
 | Widget iframe shell fetch | `https://www.tradingview-widget.com/embed-widget/{id}/` for 19 widget IDs | all returned HTTP 200 HTML shells | live public iframe |
+| Browser runtime capture | Chrome DevTools Protocol against eight representative widgets | real scanner XHR, Widget Sheriff fetches, chart-events request, `widgetdata` WebSockets, and public pushstream open-idle captured | browser runtime |
 | Iframe runtime globals | extraction from iframe HTML | widgetdata WebSocket, sheriff, symbol search, scanner, calendar, news, Pine, pushstream, and CRUD hosts identified | live public + static runtime |
 | Entry bundle fetch | iframe-referenced `static.tradingview.com/static/bundles/*` scripts | all referenced runtime and entry bundles returned HTTP 200 | live public script |
 | Entry bundle string mining | `rg` over downloaded entry bundles | screener product families, advanced-chart postMessage API, analysis view registry, and widget lifecycle events found | static bundle |
@@ -153,11 +156,12 @@ Missing or unmodeled surfaces:
 
 ## Next Probes
 
-1. Browser-load a representative widget from each family and capture actual XHR/WebSocket frames: advanced chart, screener, heatmap, market overview, timeline/news, events, technical analysis, and symbol info.
-2. Send controlled `set-symbol` and `set-interval` postMessages to the Advanced Chart iframe and capture resulting `widgetdata` frames and parent events.
-3. Probe Widget Sheriff endpoints from iframe runtime context and classify public, auth, policy, or network failures.
-4. Derive request builders for screener widget presets and compare them with product-page scanner bodies already captured in `docs/tradingview-product-runtime-capture-2026-05-07.md`.
-5. Decide whether widgets should become a first-class Worker route family or remain mapped onto existing scanner/chart/news/calendar primitives with a metadata route.
+1. Send controlled `set-symbol` and `set-interval` postMessages to the Advanced Chart iframe and capture resulting `widgetdata` frames and parent events.
+2. Run a longer timeline/news interaction capture or decompile `embed_timeline_widget` request builders.
+3. Direct-probe `chartevents-reuters.tradingview.com/events` response schema for the events widget.
+4. Probe Widget Sheriff parameters and negative cases from iframe runtime context.
+5. Capture sanitized scanner request bodies for screener and heatmap widget presets, then compare them with product-page scanner bodies already captured in `docs/tradingview-product-runtime-capture-2026-05-07.md`.
+6. Decide whether widgets should become a first-class Worker route family or remain mapped onto existing scanner/chart/news/calendar primitives with a metadata route.
 
 ## Completion Decision
 

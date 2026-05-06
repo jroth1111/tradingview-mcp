@@ -1,9 +1,24 @@
-# Backtest Closed Source
+# Backtest closed-source strategy
 
-Use when the strategy depends on a closed-source or private TradingView indicator.
+Backtest a strategy whose Pine source is not visible to the user.
 
-1. Confirm the indicator can be accessed by the stored Worker session.
-2. Inspect indicator metadata and plots with `POST /v1/indicators/meta`.
-3. If source is unavailable, use plot outputs or user-provided rules; do not claim source-level replication.
-4. Build a receiver strategy around explicit plot/signal rules.
-5. Backtest and report that results depend on observed outputs and available history.
+1. Find the strategy id (e.g., a paid `Script$PUB;<hash>@tv-scripting-101!`) via `list-indicators.md`.
+2. Read the metainfo with `POST /v1/indicators/meta` to get `pineId`, `pineVersion`, and the typed inputs/properties.
+3. Check read access: the Worker calls `GET /pine-facade/is_auth_to_get/{pineId}/{pineVersion}` internally. If the response is truthy, proceed; the Worker can run the strategy by reference (no source download needed). If falsy, fall back to step 5.
+4. **Truthy path (reference)**: `POST /v1/strategy/run` with `pineId`/`pineVersion` and the user's `properties` + `inputs`. The Worker sends `Script$<pineId>@tv-scripting-101!` to TradingView; TV resolves source server-side. Returns the same `{report, trades, equity}` shape.
+5. **Falsy path (plot-echo)**: author a thin receiver Pine strategy that consumes the closed-source indicator's public plot output as a `source` input. Limited to plots the closed-source script publicly exposes:
+   ```pine
+   //@version=5
+   strategy("Echo")
+   sig = input.source(close, "Closed-source plot")  // user binds to the target plot at runtime
+   if ta.crossover(sig, 0)
+       strategy.entry("Long", strategy.long)
+   ```
+   Then run `POST /v1/strategy/run` with `source` (the receiver) plus a chained study reference.
+6. Report as in `backtest-strategy.md`. Surface read-access status: "ran by reference" vs "ran via plot-echo (limited to public plots)".
+
+Caveats:
+- Plot-echo cannot read internal strategy state (entry/exit price, position size) — only declared plots. Many closed-source strategies hide the entry/exit signals; backtest fidelity drops accordingly.
+- Some scripts have `is_auth_to_get` truthy but require an active subscription; the Worker surfaces `category:"upstream"` with `details.upstreamReason:"subscription_required"` in that case.
+
+Reference: `reference/strategies.md`, `reference/pinescript.md`.

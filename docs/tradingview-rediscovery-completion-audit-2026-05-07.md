@@ -32,6 +32,7 @@ This audit does not mark the objective complete. It maps completed evidence and 
 | Shell-page bundle mining | `docs/tradingview-shell-page-bundle-mining-2026-05-07.md` | verified for yield-curves component data, macro-maps shell, Pine Screener transport/UI gate |
 | Pine Screener / macro maps decompilation | `docs/tradingview-pine-screener-macro-decompilation-2026-05-07.md` | verified for Pine Screener request body construction, no-cookie auth/header gate, and macro maps ChartApi-backed runtime path |
 | Widget/embed runtime inventory | `docs/tradingview-widgets-embed-runtime-2026-05-07.md` | verified for public docs routes, S3 embed scripts, iframe shells, runtime host globals, and selected entry-bundle API leads; interactive frame schemas still open |
+| Widget browser runtime capture | `docs/tradingview-widget-browser-runtime-capture-2026-05-07.md` | verified for representative public widget XHR/WebSocket hosts and frame methods across advanced-chart, screener, stock-heatmap, market-overview, timeline, events, technical-analysis, and symbol-info; controlled interactions and body schemas still open |
 | Preserve robust failure classes | failure sections across rediscovery/direct/product/shell artifacts classify auth, shape, invocation, network, endpoint mismatch, root-path absence, and observed-open-idle | verified |
 | Push all work | commits through this audit's latest committed state; `git status --short --branch` should be clean and tracking `origin/main` after the session close push | verified after session close |
 
@@ -66,7 +67,7 @@ This audit does not mark the objective complete. It maps completed evidence and 
 | News mediator | public HAR/runtime news flow and symbol view | Worker parity planning vs existing news-headlines route |
 | Ideas/Minds/community | existing Worker partial support and static leads | broader authenticated/community interactions |
 | Chats/support | support unread auth-gated; chats cookie-observed | scope decision and authenticated schemas |
-| Widgets/embeds | route patterns, widgetdata WebSocket evidence, public docs route inventory, S3 external-embedding scripts, 19 no-cookie iframe shells, runtime host matrix, Advanced Chart postMessage leads, screener widget product-family leads | representative browser XHR/WebSocket frame capture and Worker modeling decision |
+| Widgets/embeds | route patterns, widgetdata WebSocket evidence, public docs route inventory, S3 external-embedding scripts, 19 no-cookie iframe shells, runtime host matrix, Advanced Chart postMessage leads, screener widget product-family leads, representative browser XHR/WebSocket capture for eight widget families | controlled postMessage interactions, timeline/news trigger, direct events schema, sanitized widget scanner bodies, Widget Sheriff negative cases, and Worker modeling decision |
 | Mobile/desktop app surfaces | public web/bundle evidence only | not covered; needs mobile/desktop traffic capture if in scope |
 
 ## Completion Decision
@@ -82,7 +83,7 @@ The rediscovery has strong public, HAR, direct-probe, browser-runtime, WebSocket
 - Pine Screener authenticated/feature/plan behavior after the scan body is now derived.
 - Macro maps populated ChartApi/WebSocket frames after the runtime path is now identified.
 - Charts-polygon intended trigger.
-- Widget/embed interactive frame schemas and Worker modeling after the public docs/scripts/iframe inventory.
+- Widget/embed controlled interaction schemas, sanitized request bodies, and Worker modeling after representative public browser runtime capture.
 - Mobile/desktop app traffic, if the objective includes non-web TradingView clients.
 
 ## Required Next Input

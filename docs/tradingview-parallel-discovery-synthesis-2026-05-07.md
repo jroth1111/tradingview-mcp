@@ -31,7 +31,7 @@ No explorer edited files. HAR-derived evidence below is sanitized: host/path/met
 | Pine, Pine Screener, indicators, studies, scripts | parallel explorer | Pine public built-in/support surfaces sharpened; eval/translate/user-script and Pine Screener still need targeted probes |
 | Screeners, scanners, heatmaps | parallel explorer | scanner body families and screener persistence gaps isolated; heatmap stock public, ETF/crypto still need runtime capture |
 | Calendars, macro maps, yield curves, fundamentals | parallel explorer | economic events and supporting metadata public; IPO/bond/related scanner shapes identified; macro/yield runtime still open |
-| News, ideas, Minds, chats/support, widgets/embeds | local pass due thread limit, then focused widget runtime pass | news mediator public; chats/support unread auth-gated; widgets upgraded from static leads to live docs/scripts/iframe/runtime-host evidence |
+| News, ideas, Minds, chats/support, widgets/embeds | local pass due thread limit, then focused widget static and browser-runtime passes | news mediator public; chats/support unread auth-gated; widgets upgraded from static leads to live docs/scripts/iframe/runtime-host and representative browser XHR/WebSocket evidence |
 
 ## Auth Classification Upgrades
 
@@ -85,7 +85,7 @@ No explorer edited files. HAR-derived evidence below is sanitized: host/path/met
 - Screener facade/storage and `/api/v2/screens`.
 - ETF/crypto heatmap first-load runtime calls.
 - Macro maps, yield curves, seasonals, forward curves, and `/calendar/render`.
-- Widget and embed interactive frame schemas beyond the public docs, script, iframe-shell, and runtime-host inventory captured in `docs/tradingview-widgets-embed-runtime-2026-05-07.md`.
+- Widget and embed controlled interaction schemas beyond the public docs, script, iframe-shell, runtime-host inventory, and representative browser runtime capture recorded in `docs/tradingview-widgets-embed-runtime-2026-05-07.md` and `docs/tradingview-widget-browser-runtime-capture-2026-05-07.md`.
 
 ## High-Signal Unknown-Unknown Leads
 
@@ -133,7 +133,7 @@ No explorer edited files. HAR-derived evidence below is sanitized: host/path/met
 
 - Current Worker news uses `news-headlines.tradingview.com/v2/view/headlines/symbol`, while HAR proves public `news-mediator` flow variants. These are distinct upstream families.
 - Chats/support unread are authenticated-required for probed shapes.
-- Widgets/embeds have a first-class public docs route tree, S3 external-embedding scripts, 19 no-cookie `tradingview-widget.com/embed-widget/{id}/` shells, runtime globals for `widgetdata`, Widget Sheriff, symbol search, scanner, calendar, news, Pine, pushstream, and CRUD storage, plus entry-bundle evidence for Advanced Chart postMessage events and screener product families. They still need representative browser WebSocket/XHR frame capture before a Worker design is finalized.
+- Widgets/embeds have a first-class public docs route tree, S3 external-embedding scripts, 19 no-cookie `tradingview-widget.com/embed-widget/{id}/` shells, runtime globals for `widgetdata`, Widget Sheriff, symbol search, scanner, calendar, news, Pine, pushstream, and CRUD storage, plus entry-bundle evidence for Advanced Chart postMessage events and screener product families. A follow-up browser pass captured representative XHR/WebSocket evidence for advanced-chart, screener, stock-heatmap, market-overview, timeline, events, technical-analysis, and symbol-info. Controlled postMessage/body-schema probes are still needed before Worker design is finalized.
 
 ## Worker Authority Gap Summary
 
@@ -162,7 +162,7 @@ The next wave should use either more available agent slots or serial local captu
 
 1. Authenticated browser mutations: alert create/edit/delete, watchlist CRUD, layout save/load/delete, drawing add/delete/favorite. These need explicit rollback plans before mutation.
 2. Authenticated read-only browser capture: portfolio, paper trading account state, broker/paper panel, saved charts, chart-storage non-empty layout payloads.
-3. Public browser runtime: Pine Screener interaction, macro maps, yield curves, and representative widget iframe interactions for advanced-chart, screener, heatmap, market overview, timeline/news, events, technical analysis, and symbol info.
+3. Public browser runtime: Pine Screener interaction, macro maps, yield curves, and widget interaction follow-ups for Advanced Chart postMessage, timeline/news triggers, Widget Sheriff negative cases, and sanitized scanner/event body schemas.
 4. Bundle decompilation in temp-only workspace: `calendar_page`, `macro_maps_page`, `yield_curves_page`, `pine_screener`, `new_standalone_screener`, and deeper options chunks.
 5. WebSocket UI flows: replay, deep backtesting, pushstream triggers, charts-polygon intended trigger.
 6. Paired auth probes: same request shape with and without cookies for every read endpoint promoted from HAR evidence.

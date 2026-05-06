@@ -20,6 +20,7 @@
 - Shell page bundle mining: `docs/tradingview-shell-page-bundle-mining-2026-05-07.md`
 - Completion audit: `docs/tradingview-rediscovery-completion-audit-2026-05-07.md`
 - Widgets/embed runtime capture: `docs/tradingview-widgets-embed-runtime-2026-05-07.md`
+- Widget browser runtime capture: `docs/tradingview-widget-browser-runtime-capture-2026-05-07.md`
 - Scope not yet covered: authenticated browser network capture, plan-gated UI paths, full WebSocket frame capture, source maps, account-specific watchlists/layouts/alerts, mobile app traffic, and all locale/product pages beyond sampled pages
 
 This is not a completeness claim. The purpose of this pass is to turn the unknown-unknown workflow into durable evidence and identify the next probes required to keep rediscovering surfaces when TradingView changes.
@@ -180,6 +181,7 @@ Evidence:
 - Follow-up widget pass proved live public docs, S3 external-embedding scripts, and 19 no-cookie `https://www.tradingview-widget.com/embed-widget/{id}/` iframe shells. Captured IDs include `advanced-chart`, `screener`, `symbol-overview`, `tickers`, `ticker-tape`, `single-quote`, `stock-heatmap`, `crypto-coins-heatmap`, `etf-heatmap`, `forex-heat-map`, `market-overview`, `market-quotes`, `symbol-info`, `technical-analysis`, `financials`, `symbol-profile`, `events`, `timeline`, and `forex-cross-rates`.
 - Widget iframe globals expose `widgetdata.tradingview.com`, `widgetdata-backup.tradingview.com`, `widget-sheriff.tradingview-widget.com`, `symbol-search.tradingview.com`, `crud-storage.tradingview.com`, and per-widget scanner/news/calendar/Pine/pushstream hosts.
 - Entry-bundle mining found the Advanced Chart postMessage API (`set-symbol`, `set-interval`, `tv-widget-ready`, `tv-widget-load`, `tv-widget-no-data`, resize and symbol-click events), a broad advanced-chart analysis view registry, and widget-specific screener product families.
+- Chrome DevTools Protocol browser capture proved runtime XHR/WebSocket behavior for `advanced-chart`, `screener`, `stock-heatmap`, `market-overview`, `timeline`, `events`, `technical-analysis`, and `symbol-info`: `widgetdata` WebSockets, public pushstream open-idle, Widget Sheriff 204 checks, scanner REST, scanner-backend enum metadata, chart-events REST, support metadata, static conversions, logo assets, and telemetry.
 
 Repo support:
 
@@ -212,7 +214,7 @@ Repo support:
 | Options | options hosts/chunks/routes | absent | Options page and symbol tab network capture |
 | Portfolio/paper trading | portfolio/papertrading hosts/chunks | absent | Authenticated paper account and portfolio dialog capture |
 | Brokers/trading | broker flags/chunks/rest-demo | absent | Read-only broker selector/session capability map; no order placement |
-| Widgets/embeds | widget route patterns, docs route tree, public iframe shells, S3 embed scripts, runtime host globals, entry-bundle API leads | absent/indirect | Browser-capture representative widget XHR/WebSocket frames and decide first-class Worker model vs mapping to existing primitives |
+| Widgets/embeds | widget route patterns, docs route tree, public iframe shells, S3 embed scripts, runtime host globals, entry-bundle API leads, browser runtime XHR/WebSocket host and frame evidence | absent/indirect | Capture controlled Advanced Chart postMessage effects, timeline/news trigger, Widget Sheriff negative cases, event/scanner body schemas, and decide first-class Worker model vs mapping to existing primitives |
 | News alerts/notifications | notifications/news/channel + news chunks | partial | News alert creation/channel subscription capture |
 | Community uploads | `ideas-uploader`, user upload CDN | absent | Read-only inspect upload endpoints; no publish mutation without explicit authorization |
 
