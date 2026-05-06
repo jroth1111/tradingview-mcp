@@ -28,6 +28,14 @@ High-signal request-builder findings:
 | Yield curves page data | `GET` | `www.tradingview.com/yield-curves/?component-data-only=1` | HTTP 200 | top-level keys `available_countries`, `country_code`, `scan_data`, `settings`; default `country_code=us`; `scan_data.columns`; `scan_data.data` length 13; row keys `s`, `d`; first row symbol family `TVC:US01MY`; data vector length 11 | unauthenticated-achievable |
 | Macro maps page data | `GET` | `www.tradingview.com/macro-maps/?component-data-only=1` | HTTP 200 | keys `locale`, `isAuthorization`, `activeIndicator`, `timestamps`, `typeTable`, `countryGroup`, `mapExtrasVisible`, `indicators`; no-session response has `isAuthorization=false` and null active data fields | unauthenticated-page-data-shell |
 
+## Pine Screener UI Gate
+
+A clean no-session browser render of `/pine-screener/` produced the visible text `Sign in to use Pine Screener` and no scan controls. This means:
+
+- The bundle exposes the scan transport path and credential behavior.
+- The public no-session UI does not expose the scan body.
+- Capturing the body requires an authenticated browser session or deeper decompilation of the request construction path.
+
 ## Classification Delta
 
 Move yield curves from static/page-only to unauthenticated-achievable for the default component-data endpoint.
@@ -35,13 +43,13 @@ Move yield curves from static/page-only to unauthenticated-achievable for the de
 Keep open:
 
 - Macro maps data population, because the no-cookie component-data endpoint returned shell state with null indicators/timestamps/type table.
-- Pine Screener body schema, because the bundle exposed host/method/credential behavior but not a captured scan body.
+- Pine Screener body schema, because the bundle exposed host/method/credential behavior but the no-session UI is sign-in gated.
 
 ## Failure Classification
 
 - Passive-load absence was not service absence. Bundle mining found the yield-curves component-data path, and direct probing returned data.
 - Macro maps component-data returned HTTP 200 shell data, not an auth or network error.
-- Pine Screener requires interaction or request-builder extraction for the POST body. The bundle confirms the host/path/method and that credentials are included.
+- Pine Screener requires authenticated interaction or deeper request-builder extraction for the POST body. The bundle confirms the host/path/method and that credentials are included.
 
 ## Worker Gap
 
