@@ -51,6 +51,40 @@ Observed TradingView WebSocket frames:
 
 The `du` payload carried the seasonal study output in compressed study data. This promotes the seasonals tab from static lead to unauthenticated browser-runtime surface backed by chart WebSocket plus a TradingView basic study.
 
+## Seasonals Study Output Schema
+
+Direct no-cookie reproduction of the same chart-study flow returned:
+
+- frame names: `series_loading`, `qsd`, `symbol_resolved`, `series_timeframe`, `timescale_update`, `series_completed`, `study_loading`, `du`, `study_completed`
+- `du.p[1].st1` keys: `node`, `st`, `ns`, `t`
+- `du.p[1].st1.ns.d`: JSON string with key `dataCompressed`
+- `dataCompressed`: base64 ZIP payload
+- ZIP content: one JSON document, 19,923 bytes in the AAPL probe
+
+Decoded JSON top-level keys:
+
+- `performance`
+- `seasonals`
+
+`performance` shape:
+
+- object keyed by year, e.g. `2021` through `2026`
+- each year has `months` and `summary`
+- `months` is a 12-item array
+- completed months are two-number arrays, e.g. January 2021 `[-1.5600000000000023, -1.1683642899940099]`
+- unavailable future months are `null`; the 2026 probe had 7 null future months
+- `summary` is a two-number array, e.g. 2021 `[44.04999999999998, 32.99131216297182]`
+
+`seasonals` shape:
+
+- object keyed by year, e.g. `2021` through `2026`
+- each year is an array of `[dayOfYear, price]` points
+- AAPL sample counts: 2021 had 252 points and 2022 had 251 points
+- AAPL 2021 first point: `[3, 133.52]`
+- AAPL 2021 last point: `[365, 177.57]`
+
+This closes the first-pass decoded seasonals response-schema gap. Remaining seasonals work is interaction coverage: year-range changes, table view, and broader symbol classes.
+
 ## Forward Curve Runtime
 
 Clean no-login browser loads:
@@ -126,6 +160,7 @@ This closes the first-pass forward-curve scanner body/schema gap for representat
 | --- | --- | --- |
 | Stock forward-curve route returned 404 | route/product mismatch | Use futures symbols for forward-curve runtime; do not downgrade futures forward curves |
 | Forward-curve scanner POST for `CME_MINI:ES` returned `totalCount=21`; direct `NYMEX:CL` replay returned `totalCount=129` | unauthenticated-achievable scanner schema | Model contract discovery through `scanner.tradingview.com/futures/scan?label-product=futures-forward-curve` |
+| Seasonals `du` compressed study output decoded to zipped JSON with `performance` and `seasonals` keys | unauthenticated-achievable decoded study schema | Model seasonals as chart-study output rather than REST |
 | CDP script process stayed open after writing the artifact | harness lifecycle bug | Exact Chrome/Node PIDs were terminated and temp profile removed; captured runtime evidence remains valid |
 | Pushstream opened but no channel messages were needed for these views | observed-open-idle | Keep pushstream trigger behavior open elsewhere |
 
@@ -142,10 +177,9 @@ Potential modeling paths:
 
 ## Remaining Gaps
 
-1. Decode or reproduce the seasonals `du` compressed study output into a stable response schema.
-2. Probe seasonals year-range/table-view interactions.
-3. Probe additional forward-curve roots and interaction variants.
+1. Probe seasonals year-range/table-view interactions.
+2. Probe additional forward-curve roots and interaction variants.
 
 ## Completion Decision
 
-Seasonals and forward curves are now public browser-runtime surfaces, not merely static leads. Forward-curve scanner schema is verified for representative `CME_MINI:ES` and `NYMEX:CL` roots. The full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, macro-map remaining UI interactions, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.
+Seasonals and forward curves are now public browser-runtime surfaces, not merely static leads. Seasonals study output is decoded into a stable first-pass JSON schema, and forward-curve scanner schema is verified for representative `CME_MINI:ES` and `NYMEX:CL` roots. The full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, macro-map remaining UI interactions, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.

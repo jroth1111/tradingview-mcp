@@ -127,7 +127,7 @@ No explorer edited files. HAR-derived evidence below is sanitized: host/path/met
 
 - Economic events are a public candidate for Worker support.
 - Extra scanner shapes exist for IPO calendar, market earnings, bond details, and related-symbols.
-- Macro maps/yield curves pages and bundles are public. Macro maps runtime is now proven as a public chart-data composition for current quote snapshots and GDP historical series. Yield curves default US component-data is public, non-US AU/DE/JP current yield quotes are public through `data.tradingview.com` quote WebSocket using the `available_countries` term registry, AU/DE/JP 10Y daily history is public through chart `resolve_symbol`/`create_series`, guest Add Country is registration-gated by a promo dialog, guest settings are local UI controls, and the bundle shows Add Country/settings/clone/delete/storage state paths. Seasonals runtime is now proven through `INTERNAL:SEASONALS` plus `Seasonals@tv-basicstudies`; futures forward curves are now proven through futures scanner plus quote WebSocket contract fan-out, with exact scanner schema for `CME_MINI:ES` and replay proof for `NYMEX:CL`. Authenticated yield Add/settings/clone/delete persistence and decoded seasonals schema remain open.
+- Macro maps/yield curves pages and bundles are public. Macro maps runtime is now proven as a public chart-data composition for current quote snapshots and GDP historical series. Yield curves default US component-data is public, non-US AU/DE/JP current yield quotes are public through `data.tradingview.com` quote WebSocket using the `available_countries` term registry, AU/DE/JP 10Y daily history is public through chart `resolve_symbol`/`create_series`, guest Add Country is registration-gated by a promo dialog, guest settings are local UI controls, and the bundle shows Add Country/settings/clone/delete/storage state paths. Seasonals runtime is now proven through `INTERNAL:SEASONALS` plus `Seasonals@tv-basicstudies`, and its compressed `du` payload decodes to zipped JSON with `performance` and `seasonals` keys; futures forward curves are now proven through futures scanner plus quote WebSocket contract fan-out, with exact scanner schema for `CME_MINI:ES` and replay proof for `NYMEX:CL`. Authenticated yield Add/settings/clone/delete persistence remains open.
 - Fundamentals config is public and can seed metadata instead of hard-coding field lists.
 
 ### News / Community / Widgets
@@ -147,7 +147,7 @@ Major absent or partial families:
 - Options, portfolio, paper trading, broker panel.
 - Pine facade beyond search/meta/private/study, plus Pine Screener.
 - Product-specific screeners, screener facade/storage, heatmaps beyond generic scanner.
-- Economic events, IPO calendar, macro maps, yield curves, seasonals, forward curves. Seasonals and forward curves have browser-runtime evidence; forward-curve scanner schema is captured, while seasonals still needs decoded study-schema consolidation before Worker design.
+- Economic events, IPO calendar, macro maps, yield curves, seasonals, forward curves. Seasonals and forward curves have browser-runtime evidence; both the seasonals study payload schema and forward-curve scanner schema are captured, though interaction variants remain open.
 - News mediator flow, news alerts, pushstream, widgets/embeds.
 - Widget-specific Worker modeling remains absent; existing chart/scanner/news/calendar primitives may cover parts of the runtime, but the iframe/postMessage/Widget Sheriff surface is not represented.
 
