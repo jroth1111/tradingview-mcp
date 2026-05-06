@@ -13,6 +13,7 @@
 - Authorization header requests: 0
 - Response `Set-Cookie` entries: 1
 - Redacted schema sketches: `docs/tradingview-har-schema-sketches-2026-05-06.md`
+- Clean-browser unauthenticated runtime follow-up: `docs/tradingview-unauth-browser-runtime-2026-05-07.md`
 
 The HAR is sensitive and was not committed. This artifact records only sanitized host/path/method/status/auth-evidence summaries.
 
@@ -87,6 +88,8 @@ The HAR upgrades these from static bundle/page leads to runtime-proven endpoints
 - Watchlists: `symbols_list/all`, `symbols_list/colored`, `symbols_list/custom`
 - Study templates and script package store
 - Broker trading panel metadata
+
+The follow-up clean-browser pass additionally proves unauthenticated runtime access for options scanner bootstrap, stock heatmap scanner feed, economic calendar events, dividend/earnings scanner feeds, and options symbol search. Use that artifact when deciding whether Worker support can start from an unauthenticated mode before adding authenticated enrichment.
 
 ## Worker Coverage Delta
 
