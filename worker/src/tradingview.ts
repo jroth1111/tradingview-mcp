@@ -11,16 +11,10 @@ import {
   type TradingviewEndpoint,
 } from "../../packages/tradingview-core/src";
 
-const MAX_BATCH_SIZE = 20000; // aligns with TradingView Premium bar caps
+export type { Candle } from "../../packages/tradingview-core/src";
+import type { Candle } from "../../packages/tradingview-core/src";
 
-export interface Candle {
-  timestamp: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
+const MAX_BATCH_SIZE = 20000; // aligns with TradingView Premium bar caps
 
 type TradingviewEvent = { name: string; params: any[] };
 type Subscriber = (event: TradingviewEvent) => void;
