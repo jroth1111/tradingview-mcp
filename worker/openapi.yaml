@@ -8,7 +8,7 @@ info:
     Upstream-reaching routes require HMAC authorization and fail closed when
     HMAC configuration is absent.
 servers:
-  - url: https://tradingview-data.example.workers.dev
+  - url: https://tradingview-data.gwizz.workers.dev
 security:
   - HmacAuth: []
 components:

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import app from "./index";
+import app, { scheduled } from "./index";
 import { setStoredSession } from "./auth-store";
 import * as tv from "./tradingview";
+import * as cacheModule from "./cache";
+import * as pruneModule from "./prune";
 
 const encoder = new TextEncoder();
 
@@ -146,5 +148,60 @@ describe("Worker auth boundary", () => {
     tokenSpy.mockRestore();
     candleSpy.mockRestore();
     profileSpy.mockRestore();
+  });
+});
+
+describe("Scheduled cron", () => {
+  const makeCronEnv = () =>
+    ({
+      CACHE_META: makeKV(),
+      CACHE_DATA: {} as R2Bucket,
+      CACHE_MAX_TOTAL_BYTES: "8000000000",
+    }) as unknown as CloudflareBindings;
+
+  const makeCtx = (pending: Promise<unknown>[]) =>
+    ({
+      waitUntil: (promise: Promise<unknown>) => {
+        pending.push(promise);
+      },
+      passThroughOnException: () => {},
+    }) as unknown as ExecutionContext;
+
+  it("invokes snapshotMeta and pruneCache with the configured budget", async () => {
+    const env = makeCronEnv();
+    const snapshotSpy = vi
+      .spyOn(cacheModule, "snapshotMeta")
+      .mockResolvedValueOnce("snapshots/2026-05-07.json");
+    const pruneSpy = vi
+      .spyOn(pruneModule, "pruneCache")
+      .mockResolvedValueOnce({ pruned: 0, totalBytes: 1234 });
+    const pending: Promise<unknown>[] = [];
+
+    await scheduled({ scheduledTime: 0, cron: "0 3 * * *" } as ScheduledController, env, makeCtx(pending));
+    await Promise.all(pending);
+
+    expect(snapshotSpy).toHaveBeenCalledWith(env.CACHE_META, env.CACHE_DATA);
+    expect(pruneSpy).toHaveBeenCalledWith(env.CACHE_META, env.CACHE_DATA, 8000000000);
+    snapshotSpy.mockRestore();
+    pruneSpy.mockRestore();
+  });
+
+  it("still runs pruneCache when snapshotMeta rejects", async () => {
+    const env = makeCronEnv();
+    const snapshotSpy = vi
+      .spyOn(cacheModule, "snapshotMeta")
+      .mockRejectedValueOnce(new Error("snapshot boom"));
+    const pruneSpy = vi
+      .spyOn(pruneModule, "pruneCache")
+      .mockResolvedValueOnce({ pruned: 0, totalBytes: 0 });
+    const pending: Promise<unknown>[] = [];
+
+    await scheduled({ scheduledTime: 0, cron: "0 3 * * *" } as ScheduledController, env, makeCtx(pending));
+    await Promise.all(pending);
+
+    expect(snapshotSpy).toHaveBeenCalled();
+    expect(pruneSpy).toHaveBeenCalledWith(env.CACHE_META, env.CACHE_DATA, 8000000000);
+    snapshotSpy.mockRestore();
+    pruneSpy.mockRestore();
   });
 });

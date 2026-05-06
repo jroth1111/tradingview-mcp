@@ -139,6 +139,13 @@ const requireAdminAuth = async (c: any): Promise<Response | null> => {
   return await verifyHmacAuth(c);
 };
 
+const SESSION_STATUS_CANARY = {
+  symbol: "ASX:MQG",
+  timeframe: "1D",
+  amount: 1,
+  timeoutMs: 8000,
+} as const;
+
 app.get("/admin/session/status", async (c) => {
   const authResp = await requireAdminAuth(c);
   if (authResp) return authResp;
@@ -149,11 +156,11 @@ app.get("/admin/session/status", async (c) => {
     const token = await getAuthToken(stored.sessionId, stored.sessionSign);
     if (token === "unauthorized_user_token") {
       const candles = await getCandles({
-        symbol: "ASX:MQG",
-        timeframe: "1D",
-        amount: 1,
+        symbol: SESSION_STATUS_CANARY.symbol,
+        timeframe: SESSION_STATUS_CANARY.timeframe,
+        amount: SESSION_STATUS_CANARY.amount,
         sessionId: stored.sessionId,
-        timeoutMs: 8000,
+        timeoutMs: SESSION_STATUS_CANARY.timeoutMs,
       });
       if (candles.length === 0) throw new Error("Wrong or expired sessionid/sessionid_sign");
     }
