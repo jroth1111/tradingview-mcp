@@ -1,0 +1,25 @@
+{
+  "name": "tradingview",
+  "version": "1.0.0",
+  "description": "TradingView Worker authority, shared core package, and agent skill workflows.",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "worker",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @tradingview/core && npm run build --workspace worker",
+    "typecheck": "npm run typecheck --workspace @tradingview/core && npm run typecheck --workspace worker",
+    "test": "npm run test --workspace worker && npm run skill:validate && npm run openapi:validate",
+    "skill:validate": "node scripts/validate-tradingview-skill.mjs",
+    "openapi:validate": "node scripts/validate-worker-openapi.mjs",
+    "dev": "npm run dev --workspace worker",
+    "deploy": "npm run deploy --workspace worker"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {},
+  "devDependencies": {}
+}

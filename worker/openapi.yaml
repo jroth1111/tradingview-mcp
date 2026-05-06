@@ -1,0 +1,263 @@
+openapi: 3.1.0
+info:
+  title: TradingView Worker API
+  version: 1.0.0
+  description: >
+    Cloudflare Worker API for TradingView market data, cache management, admin
+    session storage, symbol metadata, studies, screeners, news, and calendars.
+    Upstream-reaching routes require HMAC authorization and fail closed when
+    HMAC configuration is absent.
+servers:
+  - url: https://tradingview-data.example.workers.dev
+security:
+  - HmacAuth: []
+components:
+  securitySchemes:
+    HmacAuth:
+      type: http
+      scheme: hmac
+      description: >
+        Authorization: HMAC <clientId>:<hex_signature>. Canonical string is
+        METHOD, path+query, SHA-256 body hash, and X-Timestamp joined by newlines.
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    Ok:
+      type: object
+      properties:
+        ok:
+          type: boolean
+paths:
+  /health:
+    get:
+      security: []
+      summary: Health check
+      responses:
+        "200":
+          description: Worker is reachable.
+  /:
+    get:
+      security: []
+      summary: Service route inventory.
+      responses:
+        "200":
+          description: Service metadata and endpoint list.
+  /admin/session/status:
+    get:
+      summary: Inspect stored TradingView session status.
+      responses:
+        "200":
+          description: Session status.
+  /admin/session:
+    post:
+      summary: Store a fresh TradingView browser session in KV.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId]
+              properties:
+                sessionId: { type: string }
+                sessionSign: { type: string }
+      responses:
+        "200":
+          description: Stored session.
+  /admin/session/unblock:
+    post:
+      summary: Clear temporary auth failure block state.
+      responses:
+        "200":
+          description: Updated session block state.
+  /cache/{symbol}/{tf}:
+    get:
+      summary: Fetch R2/KV cached candles and fill gaps through FetchCoordinator.
+      parameters:
+        - { name: symbol, in: path, required: true, schema: { type: string } }
+        - { name: tf, in: path, required: true, schema: { type: string } }
+        - { name: from, in: query, schema: { type: number } }
+        - { name: to, in: query, schema: { type: number } }
+        - { name: total, in: query, schema: { type: number } }
+        - { name: endpoint, in: query, schema: { type: string } }
+        - { name: maxBytes, in: query, schema: { type: number } }
+      responses:
+        "200":
+          description: Candles and cache metadata.
+        "401":
+          description: Missing or invalid HMAC.
+        "500":
+          description: HMAC not configured or cache error.
+  /cache/{symbol}/{tf}/status:
+    get:
+      summary: Inspect cache coverage metadata.
+      parameters:
+        - { name: symbol, in: path, required: true, schema: { type: string } }
+        - { name: tf, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Cache metadata.
+  /cache/{symbol}/{tf}/invalidate:
+    post:
+      summary: Delete cache metadata and matching R2 chunks for a symbol/timeframe.
+      parameters:
+        - { name: symbol, in: path, required: true, schema: { type: string } }
+        - { name: tf, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Cache invalidated.
+  /cache/snapshot:
+    post:
+      summary: Snapshot cache metadata into R2.
+      responses:
+        "200":
+          description: Snapshot key.
+  /cache/restore:
+    post:
+      summary: Restore cache metadata from an R2 snapshot key.
+      responses:
+        "200":
+          description: Restore result.
+  /cache/selftest:
+    get:
+      summary: Run cache self-tests.
+      responses:
+        "200":
+          description: Self-test results.
+  /cache/integration-test:
+    get:
+      summary: Run local cache integration harness.
+      responses:
+        "200":
+          description: Integration harness result.
+  /v1/candles:
+    post:
+      summary: Fetch candles for one or more symbols.
+      responses: { "200": { description: Candle results. } }
+  /v1/quotes:
+    post:
+      summary: Fetch quote fields.
+      responses: { "200": { description: Quote results. } }
+  /v1/ta:
+    post:
+      summary: Fetch TradingView scanner technical analysis values.
+      responses: { "200": { description: TA results. } }
+  /v1/ta/summary:
+    post:
+      summary: Fetch a single-symbol TA summary.
+      responses: { "200": { description: TA summary. } }
+  /v1/search:
+    post:
+      summary: Search TradingView symbols.
+      responses: { "200": { description: Search results. } }
+  /v1/indicators/search:
+    post:
+      summary: Search indicators.
+      responses: { "200": { description: Indicator search results. } }
+  /v1/indicators/meta:
+    post:
+      summary: Fetch indicator metadata.
+      responses: { "200": { description: Indicator metadata. } }
+  /v1/indicators/private:
+    post:
+      summary: List private indicators for the stored or provided session.
+      responses: { "200": { description: Private indicators. } }
+  /v1/study:
+    post:
+      summary: Run a TradingView study.
+      responses: { "200": { description: Study output. } }
+  /v1/backfill:
+    post:
+      summary: Backfill candles in batches.
+      responses: { "200": { description: Backfilled candles. } }
+  /v1/replay:
+    post:
+      summary: Create a replay session state.
+      responses: { "200": { description: Replay state. } }
+  /v1/news:
+    post:
+      summary: Fetch TradingView news headlines.
+      responses: { "200": { description: News items. } }
+  /v1/news/content:
+    post:
+      summary: Fetch and extract TradingView news article content.
+      responses: { "200": { description: News content. } }
+  /v1/fundamentals:
+    post:
+      summary: Fetch fundamental fields.
+      responses: { "200": { description: Fundamental data. } }
+  /v1/scan:
+    post:
+      summary: Run a TradingView scanner query.
+      responses: { "200": { description: Scanner result. } }
+  /v1/auth-token:
+    post:
+      summary: Derive TradingView auth_token from stored or provided session.
+      responses: { "200": { description: Auth token. } }
+  /v1/movers:
+    post:
+      summary: Fetch market movers.
+      responses: { "200": { description: Movers. } }
+  /v1/ideas:
+    post:
+      summary: Fetch TradingView ideas.
+      responses: { "200": { description: Ideas. } }
+  /v1/minds:
+    post:
+      summary: Fetch TradingView Minds posts.
+      responses: { "200": { description: Minds result. } }
+  /v1/me:
+    post:
+      summary: Fetch user profile for stored or provided session.
+      responses: { "200": { description: Profile. } }
+  /v1/resolve:
+    post:
+      summary: Resolve symbol metadata through chart session.
+      responses: { "200": { description: Symbol metadata. } }
+  /v1/markets/overview:
+    post:
+      summary: Fetch market overview.
+      responses: { "200": { description: Market overview. } }
+  /v1/markets/sector-movers:
+    post:
+      summary: Fetch sector movers.
+      responses: { "200": { description: Sector movers. } }
+  /v1/markets/industry-movers:
+    post:
+      summary: Fetch industry movers.
+      responses: { "200": { description: Industry movers. } }
+  /v1/login:
+    post:
+      summary: Attempt TradingView login.
+      responses: { "200": { description: Login result. } }
+  /v1/calendar/dividends:
+    post:
+      summary: Fetch dividend calendar events.
+      responses: { "200": { description: Dividend events. } }
+  /v1/calendar/earnings:
+    post:
+      summary: Fetch earnings calendar events.
+      responses: { "200": { description: Earnings events. } }
+  /v1/stream/bootstrap:
+    post:
+      summary: Return client-side TradingView WebSocket bootstrap instructions.
+      responses: { "200": { description: Bootstrap payload. } }
+  /v1/meta/markets:
+    get:
+      summary: List supported markets.
+      responses: { "200": { description: Markets. } }
+  /v1/meta/news:
+    get:
+      summary: List news metadata.
+      responses: { "200": { description: News metadata. } }
+  /v1/meta/fundamentals:
+    get:
+      summary: List fundamental field groups.
+      responses: { "200": { description: Fundamental fields. } }
+  /v1/meta/timeframes:
+    get:
+      summary: List supported timeframes.
+      responses: { "200": { description: Timeframes. } }

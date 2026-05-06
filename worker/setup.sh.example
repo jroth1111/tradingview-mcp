@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Copy this file to a private shell session and substitute fresh values.
+# Do not commit real TradingView sessions, HMAC secrets, or token JSON files.
+
+cd "$(dirname "$0")"
+
+printf '%s' "replace-with-client-id" | npx wrangler secret put HMAC_CLIENT_ID
+printf '%s' "replace-with-new-random-hmac-secret" | npx wrangler secret put HMAC_SECRET
+
+# Store the TradingView browser session through the admin endpoint instead of
+# persisting it in JSON. Sign the request with the HMAC client configured above.
+# POST /admin/session
+# {
+#   "sessionId": "fresh-sessionid-cookie",
+#   "sessionSign": "optional-sessionid_sign-cookie"
+# }

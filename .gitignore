@@ -1,14 +1,21 @@
-# Parent directory files to ignore
-cloudflare-tw-data/
-openapi.yaml
-setup.sh
+# Local-only artifacts and credentials
 .claude/
+.DS_Store
 .fundamentals_responses.json
 .scanner_requests.json
 .tradingview_cookies.json
 .tmp-chart-test.mjs
 .www.tradingview.com.har
 .playwright-mcp/
+*.auth.json
+*auth*.json
+*tokens*.json
+*hmac*.json
+auth.json
+tradingview-auth.json
+admin-tokens.json
+hmac-client.json
+worker/.dev.vars
 
 # Node modules (both parent and project)
 node_modules/

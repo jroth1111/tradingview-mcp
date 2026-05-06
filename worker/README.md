@@ -1,0 +1,144 @@
+Cloudflare Worker that provides the repository's TradingView runtime authority using Hono, R2, KV, and a Durable Object cache coordinator.
+
+## Commands
+- `npm install`
+- `npm run dev`
+- `npm run deploy`
+- `npm run cf-typegen` (refresh Wrangler types)
+
+## API
+- `GET /health`
+- `POST /v1/candles` (parallel per-symbol fetches)
+  - body: `{"symbols":["NASDAQ:AAPL","BINANCE:BTCUSDT"],"timeframe":"1","amount":20000,"endpoint":"prodata","sessionId":"<your_sessionid_cookie>"}`
+  - returns per-symbol candle arrays; uses pagination (`request_more_data`) under the hood. Optional `to` lets you specify an end timestamp for the batch.
+- `GET /cache/:symbol/:tf`
+  - query: `from`, `to`, `total`, `endpoint`, `maxBytes`
+  - returns candles backed by R2+KV cache (auto gap-fill from TradingView through `FetchCoordinator`, with rate limits and size guards)
+- `GET /cache/:symbol/:tf/status`
+  - returns cached coverage meta (earliest/latest, chunk refs, counts)
+- `POST /cache/:symbol/:tf/invalidate`
+  - clears cached meta and best-effort deletes R2 chunks for that key
+- `POST /cache/snapshot`
+  - writes all cache metas + totals to R2 under `snapshots/meta_<timestamp>.json`
+- `POST /cache/restore`
+  - body: `{"key":"snapshots/meta_<timestamp>.json"}` restores metas/totals from a snapshot
+- `GET /cache/selftest`
+  - runs lightweight unit checks (merge/dedupe, split/join, coverage gap)
+- `GET /cache/integration-test`
+  - limited integration harness (runs selftests and cache calls using mock upstream/KV/R2); expand with live HTTP checks for full end-to-end coverage.
+- Cron snapshot (daily 03:00)
+  - configured via `wrangler.jsonc` `triggers.crons`; runs `snapshotMeta` to R2
+
+## Testing (manual)
+- Start worker: `npm run dev` (ensure `CACHE_META` KV and `CACHE_DATA` R2 bindings point to existing namespaces/buckets).
+- Smoke cache flow:
+  - `GET /cache/NASDAQ:AAPL/1?total=5000` should fetch from TradingView using the stored admin session, populate R2/KV, return candles.
+  - Re-run same request: should hit cache (no upstream), same candles.
+  - `GET /cache/NASDAQ:AAPL/1/status` should show earliest/latest and chunk refs.
+  - `POST /cache/NASDAQ:AAPL/1/invalidate` then status should be empty and chunks deleted.
+- Snapshot/restore:
+  - `POST /cache/snapshot` → note returned key.
+  - `POST /cache/restore` with that key should repopulate metas/totals.
+- Size/rate guards:
+  - Use `maxBytes` query to force partial responses on large merges.
+  - Drive multiple cache misses quickly; verify `partial: true` appears when rate limit exceeded.
+- Selftests:
+  - `GET /cache/selftest` should return ok:true if basic unit checks pass.
+- Integration placeholder:
+  - `GET /cache/integration-test` currently mirrors selftests; extend to cover hit/miss, multi-page gap fill, eviction, and concurrency.
+- Cron:
+  - Ensure cron trigger is deployed; verify logs for `[cron] snapshot written`
+- `POST /v1/quotes`
+  - body: `{"symbols":["NASDAQ:AAPL","BINANCE:BTCUSDT"],"fields":["lp","ch","chp","volume"],"endpoint":"prodata","sessionId":"<sessionid>" }`
+  - returns last quote fields for each symbol.
+- `POST /v1/ta` 
+  - body: `{"symbols":["NASDAQ:AAPL","BINANCE:BTCUSDT"],"timeframes":["1","5","15","60","240","1D","1W","1M"]}`
+  - returns TradingView scanner summary (Recommend.Other/All/MA) per timeframe.
+- `POST /v1/ta/summary`
+  - body: `{"symbol":"NASDAQ:AAPL","timeframe":"1D"}`
+  - single-symbol TA summary for one timeframe (Recommend.Other/All/MA).
+- `POST /v1/search`
+  - body: `{"query":"AAPL","filter":"stock","offset":0}`
+  - returns symbol search results from TradingView.
+- `POST /v1/indicators/search`
+  - body: `{"query":"RSI"}`
+  - returns built-in and public Pine indicators matching the query.
+- `POST /v1/indicators/meta`
+  - body: `{"id":"PUB;xxxxxxxxxxxxxxxxxx","version":"last","sessionId":"<sessionid>","sessionSign":"<sessionid_sign>" }`
+  - returns indicator metadata/inputs/plots (uses pine-facade translate; session optional for private scripts).
+- `POST /v1/indicators/private`
+  - body: `{"sessionId":"<sessionid>","sessionSign":"<sessionid_sign>" }`
+  - lists your private/saved Pine indicators (requires valid session cookie).
+- `POST /v1/study`
+  - body: `{"symbol":"NASDAQ:AAPL","studyId":"STD;RSI","inputs":{},"endpoint":"prodata","sessionId":"<sessionid>" }`
+  - runs a study via chart session and returns the raw study payload from TradingView.
+- `POST /v1/backfill`
+  - body: `{"symbol":"NASDAQ:AAPL","timeframe":"1","total":40000,"endpoint":"prodata","sessionId":"<sessionid>","delayMs":500 }`
+  - loops paginated candle fetches (20k chunks) until total bars or exhaustion, with optional delay to avoid 429s.
+- `POST /v1/replay`
+  - body: `{"symbol":"NASDAQ:AAPL","timeframe":"1","startTime":1700000000,"endpoint":"prodata","sessionId":"<sessionid>" }`
+  - creates a replay session and returns basic state (session id, position, playing flag).
+- `POST /v1/news`
+  - body: `{"symbol":"NASDAQ:AAPL","provider":"all","area":"world","section":"all","language":"en"}`
+  - returns TradingView news headlines for the symbol.
+- `POST /v1/news/content`
+  - body: `{"url":"https://www.tradingview.com/news/path-to-article/" }`
+  - fetches raw article HTML plus best-effort title/body/published extraction.
+- `POST /v1/fundamentals`
+  - body: `{"symbol":"NASDAQ:AAPL","fields":["total_revenue","net_income"]}`
+  - returns fundamental fields from TradingView’s symbol endpoint (exchange prefix required).
+- `POST /v1/scan`
+  - body: `{"market":"america","symbols":[],"filter":[...TradingView filters...],"columns":["name","close","change"]}`
+  - generic wrapper over TradingView scanner; defaults to a basic column set if none provided.
+- `POST /v1/auth-token`
+  - body: `{"sessionId":"<sessionid>" }`
+  - returns the TradingView auth_token derived from your sessionid (useful to verify premium cookie is valid).
+- `POST /v1/movers`
+  - body: `{"market":"america","type":"gainers","limit":10}`
+  - returns top movers by change% (gainers/losers) or volume for the specified market.
+- `POST /v1/ideas`
+  - body: `{"symbol":"NASDAQ:AAPL","limit":20}`
+  - returns a best-effort list of TradingView ideas for the symbol (scraped from the public ideas page).
+- `POST /v1/minds`
+  - body: `{"symbol":"NASDAQ:AAPL","sort":"recent","limit":50,"cursor":""}`
+  - returns TradingView Minds community discussions for the symbol with optional pagination cursor.
+- `POST /v1/me`
+  - body: `{"sessionId":"<sessionid>","sessionSign":"<sessionid_sign>" }`
+  - returns basic user profile derived from the session cookie (useful to verify cookies/plan).
+- `POST /v1/resolve`
+  - body: `{"symbol":"NASDAQ:AAPL","endpoint":"prodata","sessionId":"<sessionid>" }`
+  - resolves a symbol via chart session and returns metadata (pro_name, exchange, type, pricescale, etc.).
+- `POST /v1/markets/overview`
+  - body: `{"market":"america","sort":"market_cap","limit":20}`
+  - returns a market overview list sorted by market_cap/volume/change/price/volatility for the specified market.
+- `POST /v1/markets/sector-movers`
+  - body: `{"market":"america","sector":"Technology","type":"gainers","limit":10}`
+  - returns movers within a sector, sorted by gainers/losers or volume.
+- `POST /v1/markets/industry-movers`
+  - body: `{"market":"america","industry":"Semiconductors","type":"gainers","limit":10}`
+  - returns movers within an industry, sorted by gainers/losers or volume.
+- `POST /v1/login`
+  - body: `{"username":"...","password":"...","remember":true}`
+  - attempts TradingView login and returns `sessionId/sessionSign/authToken` (be aware of CAPTCHA/2FA risks).
+- `POST /v1/calendar/dividends`
+  - body: `{"timestampFrom":<unix>,"timestampTo":<unix>,"markets":["america"],"fields":["dividend_ex_date_upcoming","dividend_amount_upcoming"]}`
+  - returns dividend calendar events for the specified date range/markets (defaults to +/-3 days if not provided).
+- `POST /v1/calendar/earnings`
+  - body: `{"timestampFrom":<unix>,"timestampTo":<unix>,"markets":["america"],"fields":["earnings_release_next_date","earnings_per_share_forecast_next_fq"]}`
+  - returns earnings calendar events for the specified date range/markets (defaults to +/-3 days if not provided).
+- `POST /v1/stream/bootstrap`
+  - body: `{"sessionId":"<sessionid>","endpoint":"prodata","symbol":"NASDAQ:AAPL","timeframe":"1","fields":["lp","ch","chp"]}`
+  - returns wsUrl, auth token, chart/quote session IDs, and initial websocket messages to send (for client-side streaming; Worker itself remains stateless).
+- `GET /v1/meta/markets` — lists supported scanner markets
+- `GET /v1/meta/news` — lists providers/areas/sections/languages for news
+- `GET /v1/meta/fundamentals` — lists available fundamental fields
+- `GET /v1/meta/timeframes` — lists supported timeframes
+- `GET /` basic service info
+
+### Authentication
+Use HMAC on all upstream-reaching requests. Store TradingView `sessionid` and optional `sessionid_sign` through `POST /admin/session`; the stored session wins over caller-provided `sessionId` values.
+
+### Notes
+- Timeframe accepts numeric or TradingView strings (e.g., `1`, `5`, `60`, `1D`, `1W`, `1M`).
+- `amount` is chunked up to 20,000 bars per request; the worker will page until the requested amount (or exhaustion).
+- Endpoint defaults to `prodata`; override with `endpoint` if you need `data/widgetdata/charts-polygon`.

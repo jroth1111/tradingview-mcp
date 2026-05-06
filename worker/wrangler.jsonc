@@ -1,0 +1,49 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tradingview-data",
+  "account_id": "81f96723a96b1ae6b3f2f2cc7693be33",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-12-09",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./public"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    "crons": ["0 3 * * *"]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FETCH_COORDINATOR",
+        "class_name": "FetchCoordinator"
+      }
+    ]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "CACHE_META",
+      "id": "12e50cb2eb5f4dd592ba5f6d0cb3d004",
+      "preview_id": "12e50cb2eb5f4dd592ba5f6d0cb3d004"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "CACHE_DATA",
+      "bucket_name": "tradingview-data",
+      "preview_bucket_name": "tradingview-data-preview"
+    }
+  ],
+  "vars": {
+    "CACHE_MAX_TOTAL_BYTES": "8000000000",
+    "CACHE_MAX_FETCHES_PER_MINUTE": "3"
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["FetchCoordinator"]
+    }
+  ]
+}

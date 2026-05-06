@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Local Environment Variables (Contains Secrets!)
+.dev.vars
+.env
+.env.local
+.env.*.local
+
+# Worker
+wrangler.toml.dev
+dist/
