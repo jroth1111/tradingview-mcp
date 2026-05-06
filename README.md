@@ -10,11 +10,14 @@ The previous `tradingview-mcp/` runtime has been removed. Do not reintroduce Tra
 
 ## Commands
 
+This repo uses [pnpm](https://pnpm.io) (workspaces declared in `pnpm-workspace.yaml`). Do not use `npm`.
+
 ```bash
-npm run typecheck
-npm run build
-npm run test
-npm run dev
+pnpm install        # one-time; required before pnpm test, pnpm run dev, and pnpm run build
+pnpm run typecheck
+pnpm run build
+pnpm test
+pnpm run dev
 ```
 
 ## Security Model
