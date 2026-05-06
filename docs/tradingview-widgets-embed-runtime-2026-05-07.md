@@ -127,6 +127,7 @@ High-signal derived findings:
 - Advanced Chart registers analysis/product views including `financials`, `technicals`, `seasonals`, `analysis`, `forecast`, `options`, `economy-indicators`, `bonds`, `documents`, `news`, `etfs`, `forward-curve`, `yield-curve`, `contracts`, `community`, and `chart-table-view`.
 - Widget runtime bundles contain the same TradingView `~m~<length>~m~<json>` WebSocket framing class used in direct chart/widgetdata probes.
 - Follow-up direct probes proved Events widget economic-calendar `events` and `related_events` browser-origin invocation semantics and populated related-history row schema.
+- Follow-up timeline shell/bundle probes proved timeline first-load news is server-rendered from inline `application/prs.init-data+json`, then hydrated by `embed_timeline_widget.*.js`; first-load does not need a separate news XHR.
 
 ## Failure Classification
 
@@ -158,7 +159,7 @@ Missing or unmodeled surfaces:
 ## Next Probes
 
 1. Continue Advanced Chart controlled postMessage capture only if socket-frame deltas are needed; `set-symbol` parent `quoteUpdate` behavior is proven and `set-interval` handler semantics are bundle-verified.
-2. Run a longer timeline/news interaction capture or decompile `embed_timeline_widget` request builders.
+2. Run a longer timeline/news interaction capture only if optional pagination/filtering beyond first-load SSR init data matters.
 3. Probe more Widget Sheriff parameters and negative cases beyond missing-origin validation.
 4. Capture sanitized scanner request bodies for crypto/forex/bond/futures widget presets, then compare them with product-page scanner bodies already captured in `docs/tradingview-product-runtime-capture-2026-05-07.md`.
 5. Decide whether widgets should become a first-class Worker route family or remain mapped onto existing scanner/chart/news/calendar primitives with a metadata route.

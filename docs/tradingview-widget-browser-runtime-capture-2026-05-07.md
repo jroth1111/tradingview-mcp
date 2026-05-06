@@ -315,16 +315,26 @@ This classifies Widget Sheriff as a public policy/availability check whose norma
 
 ### Timeline Widget
 
-Timeline first-load did not issue a news-mediator request in the captured window. It loaded widget bundles, logo assets, Widget Sheriff, and telemetry. This is a weakly verified runtime shape: either the embedded bundle contains a preloaded/news snapshot path not captured as XHR, the first-load config did not trigger network news fetch in the capture window, or a later scroll/interaction is required.
+Timeline first-load did not issue a news-mediator request in the captured window. It loaded widget bundles, logo assets, Widget Sheriff, and telemetry.
 
-Do not call the timeline/news feed absent. The next probe is a longer runtime capture with scroll/resize or bundle request-builder extraction for `embed_timeline_widget`.
+A follow-up shell and bundle probe resolved the first-load ambiguity:
+
+- `GET https://www.tradingview-widget.com/embed-widget/timeline/?locale=en` returned HTTP 200 with an inline `<script type="application/prs.init-data+json">` block.
+- That init-data block contained 15 `news` rows under a generated root key.
+- Observed news row fields: `id`, `link`, `provider`, `published`, `relatedSymbols`, `storyPath`, `title`, and `urgency`.
+- Observed `provider` fields: `id`, `logo_id`, and `name`.
+- Observed `relatedSymbols` fields: `symbol`, `logoid`, `currency-logoid`, and `base-currency-logoid`.
+- Downloaded timeline runtime bundles included `runtime-embed_timeline_widget.c03c6e0d78c5ae674251.js`, `32387.47ace83c61a884341cd6.js`, `998.98a265cc760e9aa4c867.js`, and `embed_timeline_widget.fe1f3bc4975af39db28c.js`.
+- `embed_timeline_widget.fe1f3bc4975af39db28c.js` parses `application/prs.init-data+json`, hydrates from `window.initData`, renders the `news` rows, and builds article links plus a `/news/` "Keep reading" link with UTM parameters.
+
+This classifies the timeline widget first-load shape as server-rendered / init-data-backed, not as a missing first-load XHR. A longer interaction capture is still useful only for detecting optional later pagination, refresh, or filtered-news behavior.
 
 ## Failure Classification
 
 | Observation | Classification | Handling |
 | --- | --- | --- |
 | No Playwright/Puppeteer dependency in repo | environment/tooling constraint | Used Chrome DevTools Protocol directly; no dependency install required |
-| Timeline had no news XHR in first-load capture | partial/trigger uncertainty | Keep open; do longer interaction capture or bundle request-builder extraction |
+| Timeline had no news XHR in first-load capture | SSR/init-data backed first-load | Shell and bundle probe proved inline `application/prs.init-data+json` news rows; keep later-interaction pagination/filtering open |
 | Events `chartevents` request status was not recorded in reduced summary | capture timing/partial evidence | Direct probes now prove HTTP 200 no-data envelope, populated Reuters schema, and populated economic-calendar related-history schema |
 | `related_events` without browser-like `Origin` returned nginx HTML 403 | origin-gated invocation | Retry with widget/browser `Origin` and `Referer`; do not classify as auth or network |
 | Reuters composite event id on `related_events` returned JSON `bad_request` | id-shape invocation failure | Use numeric event ids from `economic-calendar.tradingview.com/events`, not Reuters composite ids |
@@ -351,7 +361,7 @@ Existing Worker primitives overlap with parts of this behavior (`quotes`, generi
 ## Remaining Widget Gaps
 
 - Advanced Chart postMessage socket-frame deltas after `set-symbol`/`set-interval`; parent event behavior and interval handler semantics are now proven or bundle-verified.
-- Longer timeline/news interaction capture or decompiled request-builder proof.
+- Longer timeline/news interaction capture only for optional pagination/filtering beyond the proven SSR/init-data first-load rows.
 - Broader Widget Sheriff parameter exploration beyond missing-origin validation.
 - Additional widget-specific scanner bodies for crypto/forex/bond/futures presets beyond the captured stock screener and stock heatmap defaults.
 - Worker design decision: first-class `/v1/widgets/*` metadata/runtime routes vs mapping widgets onto existing scanner/chart/news/calendar primitives.
