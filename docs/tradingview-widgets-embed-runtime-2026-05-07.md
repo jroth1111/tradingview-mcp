@@ -158,9 +158,9 @@ Missing or unmodeled surfaces:
 
 1. Send controlled `set-symbol` and `set-interval` postMessages to the Advanced Chart iframe and capture resulting `widgetdata` frames and parent events.
 2. Run a longer timeline/news interaction capture or decompile `embed_timeline_widget` request builders.
-3. Direct-probe `chartevents-reuters.tradingview.com/events` response schema for the events widget.
-4. Probe Widget Sheriff parameters and negative cases from iframe runtime context.
-5. Capture sanitized scanner request bodies for screener and heatmap widget presets, then compare them with product-page scanner bodies already captured in `docs/tradingview-product-runtime-capture-2026-05-07.md`.
+3. Find a populated `chartevents-reuters.tradingview.com/events` window/country set for events-widget response schema.
+4. Probe more Widget Sheriff parameters and negative cases beyond missing-origin validation.
+5. Capture sanitized scanner request bodies for crypto/forex/bond/futures widget presets, then compare them with product-page scanner bodies already captured in `docs/tradingview-product-runtime-capture-2026-05-07.md`.
 6. Decide whether widgets should become a first-class Worker route family or remain mapped onto existing scanner/chart/news/calendar primitives with a metadata route.
 
 ## Completion Decision

@@ -133,7 +133,7 @@ No explorer edited files. HAR-derived evidence below is sanitized: host/path/met
 
 - Current Worker news uses `news-headlines.tradingview.com/v2/view/headlines/symbol`, while HAR proves public `news-mediator` flow variants. These are distinct upstream families.
 - Chats/support unread are authenticated-required for probed shapes.
-- Widgets/embeds have a first-class public docs route tree, S3 external-embedding scripts, 19 no-cookie `tradingview-widget.com/embed-widget/{id}/` shells, runtime globals for `widgetdata`, Widget Sheriff, symbol search, scanner, calendar, news, Pine, pushstream, and CRUD storage, plus entry-bundle evidence for Advanced Chart postMessage events and screener product families. A follow-up browser pass captured representative XHR/WebSocket evidence for advanced-chart, screener, stock-heatmap, market-overview, timeline, events, technical-analysis, and symbol-info. Controlled postMessage/body-schema probes are still needed before Worker design is finalized.
+- Widgets/embeds have a first-class public docs route tree, S3 external-embedding scripts, 19 no-cookie `tradingview-widget.com/embed-widget/{id}/` shells, runtime globals for `widgetdata`, Widget Sheriff, symbol search, scanner, calendar, news, Pine, pushstream, and CRUD storage, plus entry-bundle evidence for Advanced Chart postMessage events and screener product families. Follow-up browser passes captured representative XHR/WebSocket evidence for advanced-chart, screener, stock-heatmap, market-overview, timeline, events, technical-analysis, and symbol-info; stock screener/heatmap body shapes; technical-analysis scanner fields; Widget Sheriff validation; and chart-events no-data envelope. Controlled postMessage, timeline/news, populated events, and broader preset-body probes are still needed before Worker design is finalized.
 
 ## Worker Authority Gap Summary
 
@@ -162,7 +162,7 @@ The next wave should use either more available agent slots or serial local captu
 
 1. Authenticated browser mutations: alert create/edit/delete, watchlist CRUD, layout save/load/delete, drawing add/delete/favorite. These need explicit rollback plans before mutation.
 2. Authenticated read-only browser capture: portfolio, paper trading account state, broker/paper panel, saved charts, chart-storage non-empty layout payloads.
-3. Public browser runtime: Pine Screener interaction, macro maps, yield curves, and widget interaction follow-ups for Advanced Chart postMessage, timeline/news triggers, Widget Sheriff negative cases, and sanitized scanner/event body schemas.
+3. Public browser runtime: Pine Screener interaction, macro maps, yield curves, and widget interaction follow-ups for Advanced Chart postMessage, timeline/news triggers, populated chart-events schema, broader Widget Sheriff cases, and broader preset body schemas.
 4. Bundle decompilation in temp-only workspace: `calendar_page`, `macro_maps_page`, `yield_curves_page`, `pine_screener`, `new_standalone_screener`, and deeper options chunks.
 5. WebSocket UI flows: replay, deep backtesting, pushstream triggers, charts-polygon intended trigger.
 6. Paired auth probes: same request shape with and without cookies for every read endpoint promoted from HAR evidence.

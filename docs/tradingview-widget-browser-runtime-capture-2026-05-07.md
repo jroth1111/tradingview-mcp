@@ -19,6 +19,8 @@ This pass browser-loaded representative public iframe widgets and captured real 
 | CDP network capture | Node script using Chrome `/json/new`, `Network.enable`, `Page.navigate`, `Network.webSocket*` events | eight widget pages captured | browser runtime |
 | Cleanup | `kill -TERM 40707; sleep 2; pgrep -laf 'remote-debugging-port=9223|tv-widget-cdp.wtHDlq'` | no Chrome process remained for the temp profile | local cleanup |
 | Validation input | `/tmp/tv-widget-cdp.wtHDlq/capture/summary.json` plus per-widget JSON | summarized into this artifact; raw temp files not committed | sanitized derived evidence |
+| Scanner/body capture | second Chrome CDP pass on port 9224 with `Network.requestWillBeSent.request.postData` | screener and stock-heatmap scanner bodies plus technical-analysis field query captured | browser runtime body shape |
+| Direct service probes | Node `fetch` to `chartevents-reuters` and Widget Sheriff routes | chart-events default returned HTTP 200 no-data JSON; Widget Sheriff success and missing-origin failure classified | direct public probe |
 
 Counterexample shown: if widget runtime were assumed to be static HTML plus external-embedding JS, this capture disproves that by showing live `widgetdata` WebSocket sessions, scanner XHR, Widget Sheriff requests, chart-events REST, support portal fetches, logo/CDN fetches, and public pushstream connections during first-load widget rendering.
 
@@ -141,18 +143,63 @@ This is a partial-availability case: heatmap data came from scanner REST, while 
 
 First-load screener runtime is REST scanner-backed:
 
-- `POST scanner.tradingview.com/america/metainfo?api_key=...&label-product=...` -> HTTP 200.
-- `POST scanner.tradingview.com/america/scan?api_key=...&label-product=...` -> HTTP 200.
+- `POST scanner.tradingview.com/america/metainfo?api_key=widget_user_token&label-product=screener-stock-old` -> HTTP 200 with body `{"markets":["america"]}`.
+- `POST scanner.tradingview.com/america/scan?api_key=widget_user_token&label-product=screener-stock-old` -> HTTP 200.
 - No WebSocket opened during the capture window.
 - Many symbol logo requests followed from `s3-symbol-logo.tradingview.com`, proving the rendered table had symbol rows, not just an empty shell.
+
+Sanitized first-load scan body shape:
+
+```json
+{
+  "filter": [
+    {"left": "type", "operation": "in_range", "right": ["stock", "dr", "fund"]},
+    {"left": "subtype", "operation": "in_range", "right": ["common", "foreign-issuer", "", "etf", "etf,odd", "etf,otc", "etf,cfd"]},
+    {"left": "exchange", "operation": "in_range", "right": ["NYSE", "NASDAQ", "AMEX"]}
+  ],
+  "options": {"data_restrictions": "PREV_BAR", "lang": "en"},
+  "markets": ["america"],
+  "symbols": {"query": {"types": [], "exchanges": ["NASDAQ", "NYSE", "AMEX", "OTC"]}, "tickers": []},
+  "columns": ["logoid", "name", "close", "change", "change_abs", "Recommend.All", "volume", "Value.Traded", "market_cap_basic", "price_earnings_ttm", "earnings_per_share_basic_ttm", "number_of_employees", "sector", "description", "type", "subtype", "update_mode", "pricescale", "minmov", "fractional", "minmove2", "currency", "fundamental_currency_code"],
+  "sort": {"sortBy": "name", "sortOrder": "asc"},
+  "range": [0, 150]
+}
+```
 
 ### Stock Heatmap Widget
 
 First-load stock heatmap runtime is also scanner-backed:
 
-- `POST scanner.tradingview.com/america/scan?api_key=...&label-product=...` -> HTTP 200.
+- `POST scanner.tradingview.com/america/scan?api_key=widget_user_token&label-product=heatmap-stock` -> HTTP 200.
 - `widgetdata` opened but only exchanged session/heartbeat during the capture window.
 - Large symbol logo fetch fan-out followed, consistent with populated heatmap tiles.
+
+Sanitized first-load scan body shape:
+
+```json
+{
+  "columns": ["typespecs", "change|60", "change|240", "change", "Perf.W", "Perf.1M", "Perf.3M", "Perf.6M", "Perf.YTD", "Perf.Y", "premarket_change", "postmarket_change", "relative_volume_10d_calc", "Volatility.D", "gap", "market_cap_basic", "volume", "volume|1W", "volume|1M", "Value.Traded", "Value.Traded|1W", "Value.Traded|1M", "sector", "sector.tr", "logo", "close|60", "pricescale", "name", "description", "update_mode"],
+  "filter": [
+    {"left": "is_blacklisted", "operation": "equal", "right": false},
+    {"left": "name", "operation": "not_in_range", "right": ["GOOG"]},
+    {"left": "market_cap_basic", "operation": "nempty"}
+  ],
+  "ignore_unknown_fields": false,
+  "options": {"lang": "en", "data_restrictions": "PREV_BAR"},
+  "sort": {"sortBy": "market_cap_basic", "sortOrder": "desc"},
+  "symbols": {"symbolset": ["SYML:SP;SPX"]},
+  "markets": ["america"]
+}
+```
+
+### Technical Analysis Widget
+
+Technical analysis first-load combines a `widgetdata` quote session with a scanner symbol metadata query:
+
+- `GET scanner.tradingview.com/symbol?symbol=NASDAQ:AAPL&fields=...&no_404=true&label-product=external-widgets` -> HTTP 200.
+- The captured `fields` set includes `Recommend.Other`, `Recommend.All`, `Recommend.MA`, oscillator fields (`RSI`, `Stoch.*`, `CCI20`, `ADX*`, `AO`, `Mom`, `MACD.*`), moving averages (`EMA10`, `SMA10`, through `EMA200`, `SMA200`), and pivot families (`Pivot.M.Classic.*`, `Fibonacci.*`, `Camarilla.*`, `Woodie.*`, `Demark.*`).
+
+This proves the technical-analysis widget is not only quote-socket backed; it also uses a public scanner symbol endpoint with the `external-widgets` product label.
 
 ### Events Widget
 
@@ -160,7 +207,23 @@ Events widget runtime uses chart-events REST:
 
 - `GET chartevents-reuters.tradingview.com/events?from=...&to=...&countries=...` was issued during first load.
 - Public pushstream opened but stayed idle.
-- Treat the missing recorded status in this CDP summary as capture truncation/response-timing uncertainty, not failure; the request itself is live browser evidence and needs a targeted direct probe for response schema.
+- A direct public probe of `GET /events?from=2026-05-01&to=2026-05-07&countries=us` returned HTTP 200 `application/json` with `{"status":"no_data"}`.
+
+The direct probe proves public reachability and envelope shape, not a populated event schema. Populate it with a known event window/country set before designing Worker response types.
+
+### Widget Sheriff
+
+Every captured widget issued:
+
+- `GET widget-sheriff.tradingview-widget.com/sheriff/api/v1/rules/search?origin=https%3A%2F%2Fwww.tradingview-widget.com` -> HTTP 204.
+
+Direct probes:
+
+- `origin=https://example.com` -> HTTP 204.
+- `origin=https://www.tradingview.com` -> HTTP 204.
+- missing `origin` -> HTTP 400 JSON with validation message for required `SearchRequest.Origin`.
+
+This classifies Widget Sheriff as a public policy/availability check whose normal no-rule success is `204 No Content`; missing required input is a validation failure, not auth or network.
 
 ### Timeline Widget
 
@@ -174,7 +237,7 @@ Do not call the timeline/news feed absent. The next probe is a longer runtime ca
 | --- | --- | --- |
 | No Playwright/Puppeteer dependency in repo | environment/tooling constraint | Used Chrome DevTools Protocol directly; no dependency install required |
 | Timeline had no news XHR in first-load capture | partial/trigger uncertainty | Keep open; do longer interaction capture or bundle request-builder extraction |
-| Events `chartevents` request status was not recorded in reduced summary | capture timing/partial evidence | Run targeted direct probe before claiming schema; do not downgrade endpoint |
+| Events `chartevents` request status was not recorded in reduced summary | capture timing/partial evidence | Direct probe now proves HTTP 200 no-data envelope; populated event schema still open |
 | Public pushstream opened but stayed idle | observed-open-idle | Needs channel trigger; do not treat as absence |
 | Stock heatmap widgetdata carried only session/heartbeat while data came from scanner | partial-availability / mixed transport | Model heatmap as scanner-backed with optional/idle widgetdata in first-load context |
 
@@ -198,9 +261,9 @@ Existing Worker primitives overlap with parts of this behavior (`quotes`, generi
 
 - Controlled Advanced Chart `postMessage` interaction: `set-symbol`, `set-interval`, and parent event capture.
 - Longer timeline/news interaction capture or decompiled request-builder proof.
-- Direct chart-events response schema probe for events widget.
-- Widget Sheriff parameter exploration and negative cases.
-- Widget-specific scanner body capture with sanitized request bodies, not just host/path/method.
+- Populated chart-events response schema probe for events widget.
+- Broader Widget Sheriff parameter exploration beyond missing-origin validation.
+- Additional widget-specific scanner bodies for crypto/forex/bond/futures presets beyond the captured stock screener and stock heatmap defaults.
 - Worker design decision: first-class `/v1/widgets/*` metadata/runtime routes vs mapping widgets onto existing scanner/chart/news/calendar primitives.
 
 ## Completion Decision
