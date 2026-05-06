@@ -37,6 +37,8 @@ This artifact records sanitized first-load XHR/fetch request shapes. Static asse
 | `/macro-maps/` | document HTTP 200; no product XHR/fetch beyond shell/offers | static/page-lead; runtime API still open |
 | `/pine-screener/` | document HTTP 200; no product XHR/fetch beyond shell/offers | static/page-lead; interaction needed for `/pine_scanner_http/scan` |
 
+Follow-up bundle mining in `docs/tradingview-shell-page-bundle-mining-2026-05-07.md` promoted yield curves to unauthenticated-achievable via `GET /yield-curves/?component-data-only=1`, found macro maps component shell data, and identified the Pine Screener scan host/method/credential behavior.
+
 ## Classification Delta
 
 Move these from static/page-only leads to unauthenticated-achievable runtime surfaces:
