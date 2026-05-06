@@ -33,6 +33,8 @@ import {
   listFundamentalFields,
   listNewsMeta,
   listTimeframes,
+  runMetadataProbe,
+  runFirstBarProbe,
   type CandleRequest,
   type QuoteRequest,
   type TARequest,
@@ -750,6 +752,21 @@ app.get("/", (c) =>
       "/v1/chart-session/study/modify",
       "/v1/chart-session/replay/step",
       "/v1/chart-session/close",
+      "/v1/study/remove",
+      "/v1/study/metadata",
+      "/v1/study/get-first-bar-time",
+      "/v1/study/data-quality",
+      "/v1/study/timezone",
+      "/v1/quote/hibernate",
+      "/v1/series/modify",
+      "/v1/series/timeframe",
+      "/v1/replay/start",
+      "/v1/replay/stop",
+      "/v1/replay/set-resolution",
+      "/v1/replay/get-depth",
+      "/v1/pointset/create",
+      "/v1/pointset/modify",
+      "/v1/pointset/remove",
       "/v1/charts/list",
       "/v1/charts/token",
       "/v1/charts/layout",
@@ -2677,6 +2694,146 @@ app.post("/v1/chart-session/close", async (c) => {
     return await forwardToChartSession(c, "/close", {}, tokenOrErr);
   } catch (err: any) {
     return routeError(c, err, "chart-session close failed");
+  }
+});
+
+// === P17 WebSocket protocol depth ====================================
+// Stateful (require sessionToken; forward to the ChartSession DO):
+//   /v1/study/remove, /v1/quote/hibernate, /v1/study/data-quality,
+//   /v1/study/timezone, /v1/series/modify, /v1/series/timeframe,
+//   /v1/replay/{start,stop,set-resolution,get-depth},
+//   /v1/pointset/{create,modify,remove}
+// Stateless (transient probes; no session needed):
+//   /v1/study/metadata, /v1/study/get-first-bar-time
+
+const forwardChartSessionVerb = async (
+  c: any,
+  subPath: string,
+  fields: string[],
+): Promise<Response> => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, any>;
+    const tokenOrErr = requireSessionToken(body);
+    if (typeof tokenOrErr !== "string") return tokenOrErr;
+    const forward: Record<string, any> = {};
+    for (const f of fields) {
+      if (body[f] !== undefined) forward[f] = body[f];
+    }
+    return await forwardToChartSession(c, subPath, forward, tokenOrErr);
+  } catch (err: any) {
+    return routeError(c, err, `chart-session ${subPath.slice(1)} failed`);
+  }
+};
+
+app.post("/v1/study/remove", (c) => forwardChartSessionVerb(c, "/study/remove", ["slotName"]));
+app.post("/v1/quote/hibernate", (c) => forwardChartSessionVerb(c, "/quote/hibernate", []));
+app.post("/v1/study/data-quality", (c) =>
+  forwardChartSessionVerb(c, "/quality", ["quality"]),
+);
+app.post("/v1/study/timezone", (c) => forwardChartSessionVerb(c, "/timezone", ["tz"]));
+app.post("/v1/series/modify", (c) =>
+  forwardChartSessionVerb(c, "/series/modify", [
+    "seriesId",
+    "sourceId",
+    "symbolId",
+    "timeframe",
+    "count",
+  ]),
+);
+app.post("/v1/series/timeframe", (c) =>
+  forwardChartSessionVerb(c, "/series/timeframe", [
+    "seriesId",
+    "sourceId",
+    "timeframe",
+    "range",
+  ]),
+);
+app.post("/v1/replay/start", (c) =>
+  forwardChartSessionVerb(c, "/replay/start", ["slot", "args"]),
+);
+app.post("/v1/replay/stop", (c) => forwardChartSessionVerb(c, "/replay/stop", ["slot"]));
+app.post("/v1/replay/set-resolution", (c) =>
+  forwardChartSessionVerb(c, "/replay/set-resolution", ["slot", "timeframe"]),
+);
+app.post("/v1/replay/get-depth", (c) =>
+  forwardChartSessionVerb(c, "/replay/get-depth", ["slot", "timeoutMs"]),
+);
+app.post("/v1/pointset/create", (c) =>
+  forwardChartSessionVerb(c, "/pointset/create", ["pointsetId", "args"]),
+);
+app.post("/v1/pointset/modify", (c) =>
+  forwardChartSessionVerb(c, "/pointset/modify", ["pointsetId", "args"]),
+);
+app.post("/v1/pointset/remove", (c) =>
+  forwardChartSessionVerb(c, "/pointset/remove", ["pointsetId"]),
+);
+
+app.post("/v1/study/metadata", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+      endpoint?: any;
+      timeoutMs?: number;
+    };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await runMetadataProbe({
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+      endpoint: body.endpoint,
+      timeoutMs: body.timeoutMs,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ ok: true, metadata: result.payload, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "studies metadata probe failed");
+  }
+});
+
+app.post("/v1/study/get-first-bar-time", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      symbol?: string;
+      timeframe?: string;
+      sessionId?: string;
+      sessionSign?: string;
+      endpoint?: any;
+      timeoutMs?: number;
+    };
+    if (!body.symbol) return c.json({ error: "symbol required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await runFirstBarProbe({
+      symbol: body.symbol,
+      timeframe: body.timeframe,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+      endpoint: body.endpoint,
+      timeoutMs: body.timeoutMs,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({
+      ok: true,
+      symbol: body.symbol,
+      timeframe: body.timeframe ?? "1D",
+      firstBarTime: result.firstBarTime,
+      authSource: session.source,
+    });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "first bar time probe failed");
   }
 });
 

@@ -78,6 +78,8 @@ Two tiers gate every TradingView surface the Worker exposes. HMAC is universal; 
 | Live streams (P18, StreamBridge DO) | `GET /v1/stream/alerts`, `/stream/news`, `/stream/notifications`; `POST /v1/stream/alerts/poll`, `/stream/news/poll` | SSE bridge backed by 1000-entry ring buffer; `Last-Event-ID` resume; pushstream private channel + alerts channel. |
 | User/profile (www, P20) | `POST /v1/user/profile` (read or update) | Session-gated. |
 | TVSettings prefs (P21) | `POST /v1/user-prefs/favorites/{indicators,drawings}/{list,add,remove}`, `/user-prefs/recents/study-templates/{list,add}`, `/user-prefs/saved-screens/{list,save,delete}`, `/user-prefs/raw` | Semantic layer over TVSettings; `/raw` returns the full prefs blob. |
+| WebSocket protocol depth (P17) — stateful verbs | `POST /v1/study/remove`, `/study/data-quality`, `/study/timezone`, `/quote/hibernate`, `/series/{modify,timeframe}`, `/replay/{start,stop,set-resolution,get-depth}`, `/pointset/{create,modify,remove}` | Forward to ChartSession DO via `sessionToken`; require an active `/v1/chart-session/create`. |
+| WebSocket protocol depth (P17) — transient probes | `POST /v1/study/metadata`, `/v1/study/get-first-bar-time` | Open a transient WS, probe `studies_metadata` / `get_first_bar_time`, close. |
 
 ## Plan gating
 

@@ -26,6 +26,7 @@ import {
   normalizeTradingViewPayload,
   type TradingviewEndpoint,
 } from "../../packages/tradingview-core/src";
+import { decodeWSEvent } from "./ws-events";
 
 // === Public types ===
 
@@ -505,8 +506,34 @@ export class ChartSession {
           return await this.handleStudyCreate(request);
         case "/study/modify":
           return await this.handleStudyModify(request);
+        case "/study/remove":
+          return await this.handleStudyRemove(request);
         case "/replay/step":
           return await this.handleReplayStep(request);
+        case "/replay/start":
+          return await this.handleReplayStart(request);
+        case "/replay/stop":
+          return await this.handleReplayStop(request);
+        case "/replay/set-resolution":
+          return await this.handleReplaySetResolution(request);
+        case "/replay/get-depth":
+          return await this.handleReplayGetDepth(request);
+        case "/series/modify":
+          return await this.handleSeriesModify(request);
+        case "/series/timeframe":
+          return await this.handleSeriesTimeframe(request);
+        case "/quality":
+          return await this.handleSetDataQuality(request);
+        case "/timezone":
+          return await this.handleSwitchTimezone(request);
+        case "/quote/hibernate":
+          return await this.handleQuoteHibernate(request);
+        case "/pointset/create":
+          return await this.handlePointsetCreate(request);
+        case "/pointset/modify":
+          return await this.handlePointsetModify(request);
+        case "/pointset/remove":
+          return await this.handlePointsetRemove(request);
         case "/close":
           return await this.handleClose();
         default:
@@ -960,6 +987,285 @@ export class ChartSession {
     //   await new Promise<void>((resolve, reject) => { ... wait for next timescale_update ... });
     //   const resp: ReplayStepResponse = { ok: true, direction: body.direction, bars, barsAdvanced };
     //   return Response.json(resp);
+  }
+
+  // === P17 fire-and-forget verbs ===
+  // These send a single C->S frame on the live connection and return ok
+  // immediately. Any resulting frames flow through the normal `onEvent`
+  // pipeline (du, timescale_update, plus the new typed events emitted by
+  // ws-events.decodeWSEvent for downstream consumers).
+
+  private requireSession(): { connection: TradingviewConnection; chartSession: string } | Response {
+    if (!this.connection || !this.chartSessionState) {
+      return Response.json(
+        { error: "no active chart session; call /create first" },
+        { status: 400 },
+      );
+    }
+    return {
+      connection: this.connection,
+      chartSession: this.chartSessionState.chartSession,
+    };
+  }
+
+  private async handleStudyRemove(request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    const body = (await request.json().catch(() => ({}))) as { slotName?: string };
+    if (!body.slotName) return Response.json({ error: "slotName required" }, { status: 400 });
+    const slotIndex = this.chartSessionState!.slots.findIndex(
+      (s) => s.slotName === body.slotName,
+    );
+    if (slotIndex < 0) {
+      return Response.json({ error: `slot ${body.slotName} not found` }, { status: 404 });
+    }
+    ctx.connection.send("remove_study", [ctx.chartSession, body.slotName]);
+    this.chartSessionState!.slots.splice(slotIndex, 1);
+    delete this.lastDuRowsBySlot[body.slotName];
+    delete this.lastNsBySlot[body.slotName];
+    return Response.json({ ok: true, slotName: body.slotName });
+  }
+
+  private async handleSeriesModify(request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    const body = (await request.json().catch(() => ({}))) as {
+      seriesId?: string;
+      sourceId?: string;
+      symbolId?: string;
+      timeframe?: string | number;
+      count?: number;
+    };
+    const seriesId = body.seriesId || "sds_1";
+    const sourceId = body.sourceId || "s1";
+    const symbolId = body.symbolId || "sds_sym_1";
+    if (!body.timeframe) return Response.json({ error: "timeframe required" }, { status: 400 });
+    if (!body.count || body.count < 1) {
+      return Response.json({ error: "count (positive integer) required" }, { status: 400 });
+    }
+    const tf = validateTimeframe(body.timeframe);
+    ctx.connection.send("modify_series", [
+      ctx.chartSession,
+      seriesId,
+      sourceId,
+      symbolId,
+      tf,
+      body.count,
+    ]);
+    if (this.chartSessionState) {
+      this.chartSessionState.timeframe = tf;
+      this.chartSessionState.bars = body.count;
+    }
+    return Response.json({ ok: true, seriesId, timeframe: tf, count: body.count });
+  }
+
+  private async handleSeriesTimeframe(request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    const body = (await request.json().catch(() => ({}))) as {
+      seriesId?: string;
+      sourceId?: string;
+      timeframe?: string | number;
+      range?: { from: number; to: number };
+    };
+    const seriesId = body.seriesId || "sds_1";
+    const sourceId = body.sourceId || "s1";
+    if (!body.timeframe) return Response.json({ error: "timeframe required" }, { status: 400 });
+    const tf = validateTimeframe(body.timeframe);
+    const params: any[] = [ctx.chartSession, seriesId, sourceId, tf];
+    if (body.range) {
+      const { from, to } = body.range;
+      if (typeof from !== "number" || typeof to !== "number" || to < from) {
+        return Response.json(
+          { error: "range must be { from:number, to:number } with to >= from" },
+          { status: 400 },
+        );
+      }
+      params.push({ from, to });
+    }
+    ctx.connection.send("series_timeframe", params);
+    if (this.chartSessionState) this.chartSessionState.timeframe = tf;
+    return Response.json({ ok: true, seriesId, timeframe: tf });
+  }
+
+  private async handleSetDataQuality(request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    const body = (await request.json().catch(() => ({}))) as { quality?: string };
+    if (body.quality !== "low" && body.quality !== "high") {
+      return Response.json({ error: "quality must be 'low' or 'high'" }, { status: 400 });
+    }
+    ctx.connection.send("set_data_quality", [ctx.chartSession, body.quality]);
+    return Response.json({ ok: true, quality: body.quality });
+  }
+
+  private async handleSwitchTimezone(request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    const body = (await request.json().catch(() => ({}))) as { tz?: string };
+    if (!body.tz || typeof body.tz !== "string") {
+      return Response.json({ error: "tz (IANA timezone string) required" }, { status: 400 });
+    }
+    ctx.connection.send("switch_timezone", [ctx.chartSession, body.tz]);
+    return Response.json({ ok: true, tz: body.tz });
+  }
+
+  private async handleQuoteHibernate(_request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    // Reuse the chart session id as the quote session id only when the DO
+    // hasn't tracked a separate quote session. Today the DO doesn't open a
+    // dedicated quote session, so we hibernate the chart session's quote
+    // pipe by sending the verb against the chart session id; if a future
+    // change separates the two, this must be updated to track the qs id.
+    ctx.connection.send("quote_hibernate_all", [ctx.chartSession]);
+    return Response.json({ ok: true });
+  }
+
+  private async handlePointsetCreate(request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    const body = (await request.json().catch(() => ({}))) as {
+      pointsetId?: string;
+      args?: any[];
+    };
+    if (!body.pointsetId) return Response.json({ error: "pointsetId required" }, { status: 400 });
+    const trailing = Array.isArray(body.args) ? body.args : [];
+    ctx.connection.send("create_pointset", [ctx.chartSession, body.pointsetId, ...trailing]);
+    return Response.json({ ok: true, pointsetId: body.pointsetId });
+  }
+
+  private async handlePointsetModify(request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    const body = (await request.json().catch(() => ({}))) as {
+      pointsetId?: string;
+      args?: any[];
+    };
+    if (!body.pointsetId) return Response.json({ error: "pointsetId required" }, { status: 400 });
+    const trailing = Array.isArray(body.args) ? body.args : [];
+    ctx.connection.send("modify_pointset", [ctx.chartSession, body.pointsetId, ...trailing]);
+    return Response.json({ ok: true, pointsetId: body.pointsetId });
+  }
+
+  private async handlePointsetRemove(request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    const body = (await request.json().catch(() => ({}))) as { pointsetId?: string };
+    if (!body.pointsetId) return Response.json({ error: "pointsetId required" }, { status: 400 });
+    ctx.connection.send("remove_pointset", [ctx.chartSession, body.pointsetId]);
+    return Response.json({ ok: true, pointsetId: body.pointsetId });
+  }
+
+  // === P17 replay verbs ===
+  // The DO did not previously send any client-driven replay verbs (only the
+  // partial replay_step stub). These send the documented C->S frames against
+  // a lazily-created replay session. /replay/get-depth waits for the
+  // replay_depth response (decoded via wsEvents); the rest are fire-and-
+  // forget and let resulting du/replay_* frames flow through onEvent.
+
+  private ensureReplaySession(connection: TradingviewConnection): string {
+    if (this.replaySession) return this.replaySession;
+    const rs = generateSessionId("rs");
+    connection.send("replay_create_session", [rs]);
+    if (this.chartSessionState) {
+      connection.send("replay_add_series", [
+        rs,
+        "rs_1",
+        this.chartSessionState.symbol,
+        this.chartSessionState.timeframe,
+      ]);
+    }
+    this.replaySession = rs;
+    return rs;
+  }
+
+  private async handleReplayStart(request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    const body = (await request.json().catch(() => ({}))) as {
+      slot?: string;
+      args?: any[];
+    };
+    const slot = body.slot || "rs_1";
+    const trailing = Array.isArray(body.args) ? body.args : [];
+    const rs = this.ensureReplaySession(ctx.connection);
+    ctx.connection.send("replay_start", [rs, slot, ...trailing]);
+    return Response.json({ ok: true, replaySession: rs, slot });
+  }
+
+  private async handleReplayStop(request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    const body = (await request.json().catch(() => ({}))) as { slot?: string };
+    if (!this.replaySession) {
+      return Response.json({ error: "no active replay session" }, { status: 400 });
+    }
+    const slot = body.slot || "rs_1";
+    ctx.connection.send("replay_stop", [this.replaySession, slot]);
+    return Response.json({ ok: true, replaySession: this.replaySession, slot });
+  }
+
+  private async handleReplaySetResolution(request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    const body = (await request.json().catch(() => ({}))) as {
+      slot?: string;
+      timeframe?: string | number;
+    };
+    if (!body.timeframe) return Response.json({ error: "timeframe required" }, { status: 400 });
+    const tf = validateTimeframe(body.timeframe);
+    const slot = body.slot || "rs_1";
+    const rs = this.ensureReplaySession(ctx.connection);
+    ctx.connection.send("replay_set_resolution", [rs, slot, tf]);
+    return Response.json({ ok: true, replaySession: rs, slot, timeframe: tf });
+  }
+
+  private async handleReplayGetDepth(request: Request): Promise<Response> {
+    const ctx = this.requireSession();
+    if (ctx instanceof Response) return ctx;
+    const body = (await request.json().catch(() => ({}))) as {
+      slot?: string;
+      timeoutMs?: number;
+    };
+    const slot = body.slot || "rs_1";
+    const rs = this.ensureReplaySession(ctx.connection);
+    const timeoutMs = body.timeoutMs ?? 8000;
+
+    return new Promise<Response>((resolve) => {
+      let settled = false;
+      const finish = (resp: Response) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(ttl);
+        unsub();
+        resolve(resp);
+      };
+      const unsub = ctx.connection.subscribe((event) => {
+        const decoded = decodeWSEvent({ m: event.name, p: event.params });
+        if (!decoded) return;
+        if (decoded.kind === "replay_depth" && decoded.slot === slot) {
+          finish(
+            Response.json({ ok: true, replaySession: rs, slot, depth: decoded.depth }),
+          );
+        }
+      });
+      const ttl = setTimeout(
+        () =>
+          finish(
+            Response.json(
+              { error: "timed out awaiting replay_depth" },
+              { status: 504 },
+            ),
+          ),
+        timeoutMs,
+      );
+      try {
+        ctx.connection.send("replay_get_depth", [rs, slot]);
+      } catch (err: any) {
+        finish(Response.json({ error: err?.message ?? "send failed" }, { status: 500 }));
+      }
+    });
   }
 
   private async handleClose(): Promise<Response> {

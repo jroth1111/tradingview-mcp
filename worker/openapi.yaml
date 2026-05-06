@@ -822,3 +822,63 @@ paths:
     post:
       summary: Get the raw TVSettings prefs blob for the session.
       responses: { "200": { description: Raw TVSettings prefs blob for the session. } }
+  /v1/study/remove:
+    post:
+      summary: Remove a study slot from the chart-session DO.
+      responses: { "200": { description: Slot removed. } }
+  /v1/study/metadata:
+    post:
+      summary: Transient probe for studies_metadata master schema.
+      responses: { "200": { description: studies_metadata payload. } }
+  /v1/study/get-first-bar-time:
+    post:
+      summary: Probe earliest available bar timestamp for a symbol/timeframe.
+      responses: { "200": { description: First bar time (unix seconds). } }
+  /v1/study/data-quality:
+    post:
+      summary: Set chart-session data quality to low or high.
+      responses: { "200": { description: Data quality applied. } }
+  /v1/study/timezone:
+    post:
+      summary: Switch chart-session timezone.
+      responses: { "200": { description: Timezone applied. } }
+  /v1/quote/hibernate:
+    post:
+      summary: Hibernate all quote subscriptions on the session.
+      responses: { "200": { description: Quote hibernate sent. } }
+  /v1/series/modify:
+    post:
+      summary: Re-parameterize an existing series in place.
+      responses: { "200": { description: Series modified. } }
+  /v1/series/timeframe:
+    post:
+      summary: Switch the timeframe of an existing series, optionally with range.
+      responses: { "200": { description: Series timeframe applied. } }
+  /v1/replay/start:
+    post:
+      summary: Begin auto-stepping a replay slot.
+      responses: { "200": { description: Replay started. } }
+  /v1/replay/stop:
+    post:
+      summary: Pause auto-stepping a replay slot.
+      responses: { "200": { description: Replay stopped. } }
+  /v1/replay/set-resolution:
+    post:
+      summary: Change replay timeframe; forces recompute.
+      responses: { "200": { description: Replay resolution applied. } }
+  /v1/replay/get-depth:
+    post:
+      summary: Probe maximum replayable bars for a slot.
+      responses: { "200": { description: Replay depth response. } }
+  /v1/pointset/create:
+    post:
+      summary: Register a drawing pointset on the chart session.
+      responses: { "200": { description: Pointset created. } }
+  /v1/pointset/modify:
+    post:
+      summary: Update an existing pointset payload.
+      responses: { "200": { description: Pointset modified. } }
+  /v1/pointset/remove:
+    post:
+      summary: Drop a drawing pointset from the chart session.
+      responses: { "200": { description: Pointset removed. } }

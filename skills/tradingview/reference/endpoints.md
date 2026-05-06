@@ -284,6 +284,30 @@ Status legend:
 | POST | `/v1/user-prefs/saved-screens/delete` | HMAC + admin session | live |
 | POST | `/v1/user-prefs/raw` | HMAC + admin session | live |
 
+## WebSocket protocol depth (P17)
+
+Stateful verbs forward to the existing chart-session DO instance keyed by `sessionToken`; the caller must have already opened the session via `/v1/chart-session/create`. Stateless verbs spin a transient WS session, run the probe, and close.
+
+| Method | Path | Auth | Notes |
+| --- | --- | --- | --- |
+| POST | `/v1/study/remove` | HMAC + admin session | Drop a study slot from the live chart session. |
+| POST | `/v1/study/metadata` | HMAC + admin session | Transient probe; returns `studies_metadata` master schema. |
+| POST | `/v1/study/get-first-bar-time` | HMAC + admin session | Probes earliest bar timestamp for `{symbol, timeframe}`. |
+| POST | `/v1/study/data-quality` | HMAC + admin session | `{ quality: "low" \| "high" }`. |
+| POST | `/v1/study/timezone` | HMAC + admin session | `{ tz: <IANA> }`. |
+| POST | `/v1/quote/hibernate` | HMAC + admin session | Sends `quote_hibernate_all` against the chart session id. |
+| POST | `/v1/series/modify` | HMAC + admin session | Re-parameterize series (`seriesId`, `sourceId`, `symbolId`, `timeframe`, `count`). |
+| POST | `/v1/series/timeframe` | HMAC + admin session | `series_timeframe` (with optional `range:{from,to}`). |
+| POST | `/v1/replay/start` | HMAC + admin session | Lazily creates a replay session, sends `replay_start`. |
+| POST | `/v1/replay/stop` | HMAC + admin session | `replay_stop` against the active replay session. |
+| POST | `/v1/replay/set-resolution` | HMAC + admin session | `replay_set_resolution`. |
+| POST | `/v1/replay/get-depth` | HMAC + admin session | Sends `replay_get_depth`, awaits `replay_depth` event. |
+| POST | `/v1/pointset/create` | HMAC + admin session | `create_pointset` with opaque trailing `args[]`. |
+| POST | `/v1/pointset/modify` | HMAC + admin session | `modify_pointset`. |
+| POST | `/v1/pointset/remove` | HMAC + admin session | `remove_pointset`. |
+
+Inbound S→C events `study_loading`, `tickmark_update`, `index_update`, `clear_data`, `studies_metadata`, `protocol_error`, `protocol_switched`, `critical_error`, `replay_data_end`, `replay_depth`, `replay_resolutions`, `replay_instance_id`, `n` (notify), `m` (meta), and `get_first_bar_time` are decoded by `worker/src/ws-events.ts::decodeWSEvent` so DO consumers can pattern-match on the typed `WSEvent` union.
+
 ## Deferred
 
 | Capability | Bead | Reason |
@@ -292,7 +316,6 @@ Status legend:
 | Stateful chart-session DO | `tradingview-2v6` | Multi-step iterate, replay-driven streaming. |
 | Pine compile + run loop | `tradingview-la1` | Decomposes into P1 (`/v1/pine/compile`) + P2 (`/v1/pine/run`) above. |
 | Strategy backtest | `tradingview-g6v` | Depends on P0 (`/v1/study` fix). |
-| WS protocol depth (verbs+events; quality, timezone, series ops, pointsets, replay-state) | `tradingview-aau` | `worker/src/ws-verbs.ts` + `worker/src/ws-events.ts` helpers landed; HTTP route surface deferred until `chart-session-do.ts` exposes the matching sub-routes (`/quality`, `/timezone`, `/series/*`, `/pointset/*`, `/replay/state`). |
 
 ## Error mapping
 

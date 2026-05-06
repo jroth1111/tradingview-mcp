@@ -2259,3 +2259,173 @@ export const resolveSymbol = async (req: ResolveSymbolRequest): Promise<SymbolMe
     }, req.timeoutMs ?? 8000);
   });
 };
+
+// === P17 transient WS probes ===
+
+export interface MetadataProbeRequest {
+  endpoint?: TradingviewEndpoint;
+  sessionId?: string;
+  sessionSign?: string;
+  timeoutMs?: number;
+}
+
+export const runMetadataProbe = async (
+  req: MetadataProbeRequest = {},
+): Promise<{ payload: any[] }> => {
+  const chartSession = generateSessionId("cs");
+  const connection = await connect({
+    sessionId: req.sessionId,
+    sessionSign: req.sessionSign,
+    endpoint: req.endpoint,
+    timeoutMs: req.timeoutMs,
+  });
+
+  return new Promise<{ payload: any[] }>((resolve, reject) => {
+    let completed = false;
+    const finish = (err: any | null, payload?: any[]) => {
+      if (completed) return;
+      completed = true;
+      unsubscribe();
+      clearTimeout(ttl);
+      connection.close().catch(() => {});
+      if (err) reject(err);
+      else resolve({ payload: payload ?? [] });
+    };
+
+    const unsubscribe = connection.subscribe((event) => {
+      try {
+        if (event.name === "studies_metadata") {
+          finish(null, event.params || []);
+          return;
+        }
+        if (event.name === "protocol_error" || event.name === "critical_error") {
+          finish(new Error(`${event.name}: ${event.params?.[0] ?? "unknown"}`));
+        }
+      } catch (err) {
+        finish(err);
+      }
+    });
+
+    const ttl = setTimeout(
+      () => finish(new Error("Timed out fetching studies_metadata")),
+      req.timeoutMs ?? 10000,
+    );
+
+    try {
+      connection.send("chart_create_session", [chartSession, ""]);
+      connection.send("request_studies_metadata", [chartSession]);
+    } catch (err) {
+      finish(err);
+    }
+  });
+};
+
+export interface FirstBarProbeRequest {
+  symbol: string;
+  timeframe?: string;
+  endpoint?: TradingviewEndpoint;
+  sessionId?: string;
+  sessionSign?: string;
+  timeoutMs?: number;
+}
+
+export const runFirstBarProbe = async (
+  req: FirstBarProbeRequest,
+): Promise<{ chartSession: string; seriesId: string; firstBarTime: number }> => {
+  if (!req.symbol) throw new Error("symbol required");
+  const timeframe = validateTimeframe(req.timeframe ?? "1D");
+
+  const chartSession = generateSessionId("cs");
+  const seriesId = "sds_1";
+  const connection = await connect({
+    sessionId: req.sessionId,
+    sessionSign: req.sessionSign,
+    endpoint: req.endpoint,
+    timeoutMs: req.timeoutMs,
+  });
+
+  return new Promise<{ chartSession: string; seriesId: string; firstBarTime: number }>(
+    (resolve, reject) => {
+      let completed = false;
+      let seriesReady = false;
+      const finish = (err: any | null, value?: number) => {
+        if (completed) return;
+        completed = true;
+        unsubscribe();
+        clearTimeout(ttl);
+        connection.close().catch(() => {});
+        if (err) reject(err);
+        else
+          resolve({
+            chartSession,
+            seriesId,
+            firstBarTime: value!,
+          });
+      };
+
+      const unsubscribe = connection.subscribe((event) => {
+        try {
+          if (event.name === "series_completed" && !seriesReady) {
+            seriesReady = true;
+            try {
+              connection.send("get_first_bar_time", [chartSession, seriesId]);
+            } catch (sendErr) {
+              finish(sendErr);
+            }
+            return;
+          }
+          if (event.name === "get_first_bar_time") {
+            const params = event.params || [];
+            // Wire variants: [cs, sds, ts] or [sds, ts]
+            const ts =
+              params.length >= 3 && typeof params[2] === "number"
+                ? params[2]
+                : params.length >= 2 && typeof params[1] === "number"
+                  ? params[1]
+                  : null;
+            if (ts == null) {
+              finish(new Error("get_first_bar_time response missing timestamp"));
+              return;
+            }
+            finish(null, ts);
+            return;
+          }
+          if (event.name === "symbol_error") {
+            finish(new Error("symbol_error"));
+            return;
+          }
+          if (event.name === "protocol_error" || event.name === "critical_error") {
+            finish(new Error(`${event.name}: ${event.params?.[0] ?? "unknown"}`));
+          }
+        } catch (err) {
+          finish(err);
+        }
+      });
+
+      const ttl = setTimeout(
+        () => finish(new Error("Timed out probing first bar time")),
+        req.timeoutMs ?? 12000,
+      );
+
+      try {
+        connection.send("chart_create_session", [chartSession, ""]);
+        connection.send("resolve_symbol", [
+          chartSession,
+          "sds_sym_1",
+          "=" + JSON.stringify({ symbol: req.symbol, adjustment: "splits" }),
+        ]);
+        connection.send("create_series", [
+          chartSession,
+          seriesId,
+          "s1",
+          "sds_sym_1",
+          timeframe,
+          1,
+          "",
+        ]);
+      } catch (err) {
+        finish(err);
+      }
+    },
+  );
+};
