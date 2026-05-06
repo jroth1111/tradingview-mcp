@@ -89,6 +89,20 @@ A follow-up clean Chrome CDP probe embedded `advanced-chart` in a parent page an
 
 Classification: unauthenticated-achievable Advanced Chart parent message API for `set-symbol` and parent `quoteUpdate` events; `set-interval` remains partially classified because no distinct observable parent event was captured.
 
+#### Controlled PostMessage Bundle Follow-Up
+
+A deeper CDP attempt with child-target auto-attach still exposed only the parent and iframe document requests, not the iframe's subresource or socket traffic. That is a harness limitation, not evidence that no socket traffic exists.
+
+The live iframe shell referenced `embed_advanced_chart.90731612c7a960eff2d6.js`. Temporary bundle extraction showed the runtime message helper:
+
+- outgoing iframe-to-parent messages use `{ name, frameElementId, data }` through `window.parent.postMessage`.
+- incoming parent-to-iframe control uses `window.addEventListener("message", ...)` and dispatches when `event.data.name` matches.
+- `set-symbol` dispatches to `chartWidget.setSymbol(data.symbol)`.
+- `set-interval` dispatches to `chartWidget.setResolution(data.interval)`.
+- parent request/response helper methods also exist for `quoteSubscribe`, `imageCanvas`, `symbolInfo`, and `widgetReady`; `symbolInfo` replies with `{ name, exchange, description, type, interval }`.
+
+Classification: Advanced Chart `set-interval` is bundle-verified as a public parent-to-iframe control that changes chart resolution. Its socket-frame delta remains unverified because the available CDP harness did not capture iframe subresources in the parent embed context.
+
 ### Market Overview
 
 Sent frame methods included:
@@ -265,14 +279,14 @@ Representative widget runtime now proves these missing or indirect Worker famili
 - Widget-specific scanner presets for screener and heatmap widgets.
 - Chart-events Reuters feed for events widget.
 - Advanced Chart, Market Overview, Symbol Info, and Technical Analysis quote/session frame templates.
-- Advanced Chart parent/iframe `postMessage` control and `quoteUpdate` event schema for a public `set-symbol` change.
+- Advanced Chart parent/iframe `postMessage` control and `quoteUpdate` event schema for a public `set-symbol` change, plus bundle-verified `set-interval -> setResolution` behavior.
 - Public pushstream open-idle behavior for widgets that subscribe without a private channel.
 
 Existing Worker primitives overlap with parts of this behavior (`quotes`, generic `scan`, chart WebSocket framing, calendars/news), but there is still no first-class widget/embed model or documented mapping from widget config to Worker calls.
 
 ## Remaining Widget Gaps
 
-- Advanced Chart `set-interval` observable effect and underlying socket delta after postMessage control; `set-symbol` parent event behavior is now proven.
+- Advanced Chart postMessage socket-frame deltas after `set-symbol`/`set-interval`; parent event behavior and interval handler semantics are now proven or bundle-verified.
 - Longer timeline/news interaction capture or decompiled request-builder proof.
 - Populated chart-events response schema probe for events widget.
 - Broader Widget Sheriff parameter exploration beyond missing-origin validation.

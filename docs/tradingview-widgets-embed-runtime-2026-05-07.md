@@ -150,13 +150,13 @@ Missing or unmodeled surfaces:
 - Widget iframe metadata endpoint or route inventory.
 - `widgetdata` WebSocket session behavior per widget class, including `symbol-overview`, ticker/tape, market overview/quotes, heatmaps, technical analysis, and advanced chart.
 - Widget Sheriff behavior and failure semantics.
-- Widget postMessage API modeling for Advanced Chart; public `set-symbol` parent-event behavior is proven, while interval/socket deltas still need runtime classification.
+- Widget postMessage API modeling for Advanced Chart; public `set-symbol` parent-event behavior is proven, and `set-interval` is bundle-verified as `setResolution`, while socket deltas still need runtime classification.
 - Widget-specific screener product-family presets and default column sets.
 - Widget persistence interactions through `crud-storage` where applicable.
 
 ## Next Probes
 
-1. Continue Advanced Chart controlled postMessage capture for `set-interval` observable effects and socket-frame deltas; `set-symbol` parent `quoteUpdate` behavior is already proven.
+1. Continue Advanced Chart controlled postMessage capture only if socket-frame deltas are needed; `set-symbol` parent `quoteUpdate` behavior is proven and `set-interval` handler semantics are bundle-verified.
 2. Run a longer timeline/news interaction capture or decompile `embed_timeline_widget` request builders.
 3. Find a populated `chartevents-reuters.tradingview.com/events` window/country set for events-widget response schema.
 4. Probe more Widget Sheriff parameters and negative cases beyond missing-origin validation.
