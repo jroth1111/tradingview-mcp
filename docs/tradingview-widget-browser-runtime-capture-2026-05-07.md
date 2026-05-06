@@ -262,6 +262,43 @@ Populated event row fields observed across that response:
 
 Related-event history path from the same bundle: `GET ${ECONOMIC_CALENDAR_URL}related_events?eventId=...&countback=8`, returning `{status:"ok", result:[...]}` when available. That path is an economic-calendar host path, not the Reuters widget host.
 
+Direct public probes with browser-like `Origin: https://www.tradingview-widget.com` and `Referer: https://www.tradingview-widget.com/embed-widget/events/?locale=en` classified the exact invocation requirements:
+
+- `GET economic-calendar.tradingview.com/events?from=2026-05-01T00:00:00.000Z&to=2026-06-06T00:00:00.000Z&countries=US&minImportance=1` returned HTTP 200 `{"status":"ok"}` with 26 economic-calendar rows.
+- Economic-calendar event ids are compact numeric strings such as `395677`, not the composite Reuters ids returned by `chartevents-reuters`.
+- `GET economic-calendar.tradingview.com/related_events?eventId=395677&countback=8` returned HTTP 200 `{"status":"ok"}` with 10 rows.
+- `GET economic-calendar.tradingview.com/related_events?eventId=398410&countback=8` returned HTTP 200 `{"status":"ok"}` with 9 rows.
+- `GET economic-calendar.tradingview.com/related_events?eventId=not-a-real-event-id&countback=8` returned HTTP 400 JSON `{"status":"bad_request"}`.
+- Missing browser-like `Origin` returned nginx HTML 403; valid `Origin` with a Reuters composite id returned JSON `bad_request`. Treat these as origin/id-shape invocation failures, not network outage or auth downgrade.
+
+Related-event row fields observed across the successful probes:
+
+```json
+{
+  "actual": "number|null",
+  "actualRaw": "number|null",
+  "category": "string",
+  "comment": "string",
+  "country": "string",
+  "currency": "string",
+  "date": "ISO timestamp string",
+  "forecast": "number|null",
+  "forecastRaw": "number|null",
+  "id": "numeric string",
+  "importance": "number",
+  "indicator": "string",
+  "period": "string",
+  "previous": "number|null",
+  "previousRaw": "number|null",
+  "referenceDate": "ISO timestamp string",
+  "source": "string",
+  "source_url": "string",
+  "ticker": "string",
+  "title": "string",
+  "unit": "string|absent"
+}
+```
+
 ### Widget Sheriff
 
 Every captured widget issued:
@@ -288,7 +325,9 @@ Do not call the timeline/news feed absent. The next probe is a longer runtime ca
 | --- | --- | --- |
 | No Playwright/Puppeteer dependency in repo | environment/tooling constraint | Used Chrome DevTools Protocol directly; no dependency install required |
 | Timeline had no news XHR in first-load capture | partial/trigger uncertainty | Keep open; do longer interaction capture or bundle request-builder extraction |
-| Events `chartevents` request status was not recorded in reduced summary | capture timing/partial evidence | Direct probe now proves HTTP 200 no-data envelope; populated event schema still open |
+| Events `chartevents` request status was not recorded in reduced summary | capture timing/partial evidence | Direct probes now prove HTTP 200 no-data envelope, populated Reuters schema, and populated economic-calendar related-history schema |
+| `related_events` without browser-like `Origin` returned nginx HTML 403 | origin-gated invocation | Retry with widget/browser `Origin` and `Referer`; do not classify as auth or network |
+| Reuters composite event id on `related_events` returned JSON `bad_request` | id-shape invocation failure | Use numeric event ids from `economic-calendar.tradingview.com/events`, not Reuters composite ids |
 | Public pushstream opened but stayed idle | observed-open-idle | Needs channel trigger; do not treat as absence |
 | Stock heatmap widgetdata carried only session/heartbeat while data came from scanner | partial-availability / mixed transport | Model heatmap as scanner-backed with optional/idle widgetdata in first-load context |
 
@@ -302,7 +341,7 @@ Representative widget runtime now proves these missing or indirect Worker famili
 - Widget Sheriff check surface and its 204 success semantics.
 - `widgetdata` WebSocket session modeling for widget contexts using `widget_user_token`.
 - Widget-specific scanner presets for screener and heatmap widgets.
-- Chart-events Reuters feed for events widget.
+- Chart-events Reuters feed and economic-calendar related-history feed for events widget.
 - Advanced Chart, Market Overview, Symbol Info, and Technical Analysis quote/session frame templates.
 - Advanced Chart parent/iframe `postMessage` control and `quoteUpdate` event schema for a public `set-symbol` change, plus bundle-verified `set-interval -> setResolution` behavior.
 - Public pushstream open-idle behavior for widgets that subscribe without a private channel.
@@ -313,7 +352,6 @@ Existing Worker primitives overlap with parts of this behavior (`quotes`, generi
 
 - Advanced Chart postMessage socket-frame deltas after `set-symbol`/`set-interval`; parent event behavior and interval handler semantics are now proven or bundle-verified.
 - Longer timeline/news interaction capture or decompiled request-builder proof.
-- Broader event-history/related-events probes after the populated Reuters event schema.
 - Broader Widget Sheriff parameter exploration beyond missing-origin validation.
 - Additional widget-specific scanner bodies for crypto/forex/bond/futures presets beyond the captured stock screener and stock heatmap defaults.
 - Worker design decision: first-class `/v1/widgets/*` metadata/runtime routes vs mapping widgets onto existing scanner/chart/news/calendar primitives.
