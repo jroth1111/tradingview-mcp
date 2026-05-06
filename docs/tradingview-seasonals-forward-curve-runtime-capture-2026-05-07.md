@@ -85,11 +85,47 @@ Representative contract chain evidence:
 
 This promotes forward curves from static/bundle lead to unauthenticated browser-runtime surface. The data path is a futures scanner discovery request plus public quote WebSocket fan-out across the contract chain.
 
+## Forward Curve Scanner Schema
+
+The browser's scanner request was a public no-cookie `POST`:
+
+```json
+{
+  "columns": ["pricescale", "minmov", "minmove2", "fractional", "expiration", "close", "name", "currency"],
+  "filter": [
+    {"left": "close", "operation": "nempty"},
+    {"left": "expiration", "operation": "nempty"}
+  ],
+  "ignore_unknown_fields": false,
+  "sort": {"sortBy": "expiration", "sortOrder": "asc"},
+  "markets": ["futures"],
+  "index_filters": [{"name": "root", "values": ["CME_MINI:ES"]}]
+}
+```
+
+Observed response for `CME_MINI:ES`:
+
+- HTTP 200, JSON
+- keys: `totalCount`, `data`
+- `totalCount`: 21
+- row shape: `{ "s": symbol, "d": [pricescale, minmov, minmove2, fractional, expiration, close, name, currency] }`
+- first row: `CME_MINI:ESM2026` with expiration `20260618`, close `7379.25`, currency `USD`
+
+Direct follow-up replay with the same body shape and `index_filters[0].values=["NYMEX:CL"]` returned:
+
+- HTTP 200, JSON
+- `totalCount`: 129
+- first row: `NYMEX:CLM2026` with expiration `20260519`, close `96.11`, currency `USD`
+- last row: `NYMEX:CLG2037` with expiration `20370120`, close `53.76`, currency `USD`
+
+This closes the first-pass forward-curve scanner body/schema gap for representative index and energy futures roots. Broader root coverage remains a normal expansion task, not a blocker to classifying the surface as unauthenticated-achievable.
+
 ## Failure Classification
 
 | Observation | Classification | Handling |
 | --- | --- | --- |
 | Stock forward-curve route returned 404 | route/product mismatch | Use futures symbols for forward-curve runtime; do not downgrade futures forward curves |
+| Forward-curve scanner POST for `CME_MINI:ES` returned `totalCount=21`; direct `NYMEX:CL` replay returned `totalCount=129` | unauthenticated-achievable scanner schema | Model contract discovery through `scanner.tradingview.com/futures/scan?label-product=futures-forward-curve` |
 | CDP script process stayed open after writing the artifact | harness lifecycle bug | Exact Chrome/Node PIDs were terminated and temp profile removed; captured runtime evidence remains valid |
 | Pushstream opened but no channel messages were needed for these views | observed-open-idle | Keep pushstream trigger behavior open elsewhere |
 
@@ -107,10 +143,9 @@ Potential modeling paths:
 ## Remaining Gaps
 
 1. Decode or reproduce the seasonals `du` compressed study output into a stable response schema.
-2. Capture the exact forward-curve scanner request body and response schema.
-3. Probe seasonals year-range/table-view interactions.
-4. Probe additional forward-curve asset classes and interaction variants.
+2. Probe seasonals year-range/table-view interactions.
+3. Probe additional forward-curve roots and interaction variants.
 
 ## Completion Decision
 
-Seasonals and forward curves are now public browser-runtime surfaces, not merely static leads. The full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, macro-map remaining UI interactions, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.
+Seasonals and forward curves are now public browser-runtime surfaces, not merely static leads. Forward-curve scanner schema is verified for representative `CME_MINI:ES` and `NYMEX:CL` roots. The full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, macro-map remaining UI interactions, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.
