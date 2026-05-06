@@ -1,0 +1,175 @@
+# Worker endpoints (canonical list)
+
+Authority: this list mirrors `worker/openapi.yaml` plus routes added during the 2026-05-07 surface rediscovery. Live status flags reflect what is reachable today.
+
+Status legend:
+- `live` — wired, returning real data.
+- `bug` — wired but broken; bead link below.
+- `pending` — designed in `recon/INDICATOR-RECON-2026-05-07.md`, bead open, not yet shipped.
+- `deferred` — bead exists, paused.
+
+## Health and admin
+
+| Method | Path | Auth | Status | Purpose |
+| --- | --- | --- | --- | --- |
+| GET | `/health` | none | live | Readiness probe. |
+| GET | `/admin/session/status` | HMAC | live | Redacted admin session state. |
+| POST | `/admin/session` | HMAC | live | Write admin session (`{sessionId, sessionSign, username, userId, privateChannel}`). |
+| POST | `/admin/session/unblock` | HMAC | live | Clear `blockedUntil` cooldown. |
+
+## Cache ops
+
+| Method | Path | Auth | Status | Purpose |
+| --- | --- | --- | --- | --- |
+| GET | `/cache/{symbol}/{tf}` | HMAC | live | Stitched candle slice. |
+| GET | `/cache/{symbol}/{tf}/status` | HMAC | live | Index summary. |
+| POST | `/cache/{symbol}/{tf}/invalidate` | HMAC | live | Drop chunks for a key. |
+| POST | `/cache/snapshot` | HMAC | live | Bulk export. |
+| POST | `/cache/restore` | HMAC | live | Bulk import. |
+| GET | `/cache/selftest` | HMAC | live | Round-trip smoke test. |
+| GET | `/cache/integration-test` | HMAC | live | Multi-key integration. |
+
+## Market data
+
+| Method | Path | Auth | Status | Body |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/candles` | HMAC | live | `{symbol, timeframe, bars?, to?, sessionId?, sessionSign?}` |
+| POST | `/v1/quotes` | HMAC | live | `{symbols[], fields[]?}` |
+| POST | `/v1/replay` | HMAC + admin | live | `{symbol, timeframe, fromBar, bars}` |
+| POST | `/v1/backfill` | HMAC + admin | live | `{symbol, timeframe?, total?, delayMs?}` |
+| POST | `/v1/stream/bootstrap` | HMAC | live | Token + auth-token mint. |
+| POST | `/v1/auth-token` | HMAC + admin | live | Internal token refresh. |
+
+## Discovery and reference
+
+| Method | Path | Auth | Status | Body |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/search` | HMAC | live | `{q, exchange?, type?, limit?}` |
+| POST | `/v1/resolve` | HMAC | live | `{symbol}` |
+| POST | `/v1/scan` | HMAC | live | `{filter[], columns[], range?}` |
+| POST | `/v1/movers` | HMAC | live | `{market, type:"gainers"|"losers"}` |
+| POST | `/v1/markets/overview` | HMAC | live | `{market}` |
+| POST | `/v1/markets/sector-movers` | HMAC | live | `{market, sort?}` |
+| POST | `/v1/markets/industry-movers` | HMAC | live | `{market, sector, sort?}` |
+| GET | `/v1/meta/markets` | HMAC | live | List markets. |
+| GET | `/v1/meta/news` | HMAC | live | News categories. |
+| GET | `/v1/meta/fundamentals` | HMAC | live | Field map. |
+| GET | `/v1/meta/timeframes` | HMAC | live | Allowed timeframe codes. |
+
+## Indicators
+
+| Method | Path | Auth | Status | Body |
+| --- | --- | --- | --- | --- |
+| GET | `/v1/indicators/builtin` | HMAC | pending (bead `tradingview-ux7`) | `?filter, kind, q, fundamentalCategory` |
+| POST | `/v1/indicators/search` | HMAC | live | `{q}` (built-ins + public merged) |
+| POST | `/v1/indicators/meta` | HMAC | live | `{id, version?}` |
+| GET | `/v1/indicators/inputs/{id}` | HMAC | pending (bead `tradingview-1n8`) | Typed inputs from metaInfo. |
+| POST | `/v1/indicators/private` | HMAC + admin | live | List user-saved Pine. |
+| POST | `/v1/study` | HMAC + admin | **bug (bead `tradingview-hd6`)** | `{symbol, studyId, inputs?, params?, timeframe?, bars?, parentSeriesId?}` — current code uses 3-arg `create_study` and never decodes `du`; produces empty data. |
+
+## Pubscripts
+
+| Method | Path | Auth | Status | Notes |
+| --- | --- | --- | --- | --- |
+| GET | `/v1/pubscripts/library` | HMAC | pending (bead `tradingview-2xa`) | `?offset, count, sort, type, is_paid` |
+| GET | `/v1/pubscripts/editors-picks` | HMAC | pending | `?type` |
+| POST | `/v1/pubscripts/batch` | HMAC | pending | `{ids[]}` → fans into `/pubscripts-get/`. |
+| GET | `/v1/pubscripts/suggest` | HMAC | pending | `?q` |
+| GET | `/v1/pubscripts/personal-access` | HMAC + admin | pending | Paid scripts the user has. |
+| GET | `/v1/pubscripts/packages/store` | HMAC + admin | pending | |
+
+## Pine
+
+| Method | Path | Auth | Status | Notes |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/pine/compile` | HMAC + admin | pending (bead `tradingview-la1`) | `{source, mode:"eval"|"full"|"light", inputs?, version?}`. |
+| POST | `/v1/pine/run` | HMAC + admin | pending | Composes compile + study. |
+| POST | `/v1/pine/save` | HMAC + admin | pending | `{mode:"new"|"new_draft"|"next"|"next_draft", id?, name?, source, allow_overwrite?, allow_create_new?}` |
+| POST | `/v1/pine/publish` | HMAC + admin | pending | `{mode:"new"|"next", id?, source, extra, access}` |
+| POST | `/v1/pine/delete` | HMAC + admin | pending | `{id}` |
+| POST | `/v1/pine/rename` | HMAC + admin | pending | `{id, name, force?}` |
+| POST | `/v1/pine/parse-title` | HMAC | pending | `{source}` |
+
+## Strategy / backtest
+
+| Method | Path | Auth | Status | Notes |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/strategy/run` | HMAC + admin | pending (bead `tradingview-g6v`) | Properties + inputs + bars → `{report, trades, equity}`. |
+| POST | `/v1/strategy/replay` | HMAC + admin | pending | SSE per-bar. |
+| POST | `/v1/strategy/optimize` | HMAC + admin | pending | Parameter sweep wrapping `/v1/strategy/run`. |
+
+## Alerts
+
+| Method | Path | Auth | Status | Notes |
+| --- | --- | --- | --- | --- |
+| GET | `/v1/alerts` | HMAC + admin | pending (bead `tradingview-2lv`) | List alerts. |
+| POST | `/v1/alerts/create-on-study` | HMAC + admin | pending | Indicator-driven. |
+| POST | `/v1/alerts/create-pine` | HMAC + admin | pending | Two-phase `gen_alert` + `create_alert`. |
+| POST | `/v1/alerts/create-price` | HMAC + admin | pending | Price condition shorthand. |
+| POST | `/v1/alerts/modify` | HMAC + admin | pending | Wraps `modify_restart_alert`. |
+| POST | `/v1/alerts/{stop,restart,delete,clone}` | HMAC + admin | pending | Plural arrays. |
+| GET | `/v1/fires` | HMAC + admin | pending | Drains `/get_offline_fires` + `list_fires`. |
+| POST | `/v1/fires/clear` | HMAC + admin | pending | |
+| GET | `/v1/alerts/stream` | HMAC + admin | pending | Pushstream proxy (SSE or WSS). |
+
+## Templates
+
+| Method | Path | Auth | Status | Notes |
+| --- | --- | --- | --- | --- |
+| GET | `/v1/study-templates` | HMAC + admin | pending (bead `tradingview-6j1`) | `{custom, standard, fundamentals}` buckets. |
+| POST | `/v1/study-templates` | HMAC + admin | pending | `{name, content, meta_info?}` |
+| GET | `/v1/study-templates/{id}` | HMAC + admin | pending | `?standard=bool` |
+| PUT | `/v1/study-templates/{id}` | HMAC + admin | pending | `{name, content, meta_info}` |
+| DELETE | `/v1/study-templates/{id}` | HMAC + admin | pending | |
+| POST | `/v1/study-templates/{id}/rename` | HMAC + admin | pending | `{name}` |
+| PUT | `/v1/study-templates/{id}/favorite` | HMAC + admin | pending | `?standard=bool` |
+| DELETE | `/v1/study-templates/{id}/favorite` | HMAC + admin | pending | |
+| GET | `/v1/drawing-templates` | HMAC + admin | pending | `?tool=LineToolTrendLine` |
+| GET | `/v1/drawing-templates/{tool}/{name}` | HMAC + admin | pending | |
+| POST | `/v1/drawing-templates` | HMAC + admin | pending | `{tool, name, content}`; Worker FormData-encodes upstream. |
+| DELETE | `/v1/drawing-templates/{tool}/{name}` | HMAC + admin | pending | |
+
+## Personalisation / settings
+
+| Method | Path | Auth | Status | Notes |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/me` | HMAC + admin | live | Profile. |
+| POST | `/v1/ideas` | HMAC | live | Public list; auth gives personalised. |
+| POST | `/v1/minds` | HMAC | live | |
+| POST | `/v1/login` | HMAC | live | Captcha-aware. |
+| POST | `/v1/settings/save` | HMAC + admin | pending | `{delta:{key:value,…}}`; for indicator favorites, recents. |
+| GET | `/v1/settings/load` | HMAC + admin | pending | |
+
+## News / fundamentals / calendar
+
+| Method | Path | Auth | Status |
+| --- | --- | --- | --- |
+| POST | `/v1/news` | HMAC | live |
+| POST | `/v1/news/content` | HMAC | live |
+| POST | `/v1/fundamentals` | HMAC | live |
+| POST | `/v1/calendar/earnings` | HMAC | live |
+| POST | `/v1/calendar/dividends` | HMAC | live |
+
+## Deferred
+
+| Capability | Bead | Reason |
+| --- | --- | --- |
+| `modify_study` + study-on-study | `tradingview-xu3` | Requires DO-owned chart session (bead `tradingview-2v6`). |
+| Stateful chart-session DO | `tradingview-2v6` | Multi-step iterate, replay-driven streaming. |
+| Pine compile + run loop | `tradingview-la1` | Decomposes into P1 (`/v1/pine/compile`) + P2 (`/v1/pine/run`) above. |
+| Strategy backtest | `tradingview-g6v` | Depends on P0 (`/v1/study` fix). |
+
+## Error mapping
+
+By route family the dominant `category` values to expect:
+
+| Family | Common categories |
+| --- | --- |
+| Cache ops | `validation`, `internal` |
+| Market data | `auth` (deep history without admin), `network`, `upstream`, `rate_limit` |
+| Indicators / Pine | `auth`, `validation` (Pine compile errors include `details.errors[]`), `upstream` |
+| Strategy | `auth`, `validation`, `upstream` (plan gating) |
+| Alerts | `auth`, `validation`, `upstream` |
+| Templates | `auth`, `validation`, `upstream` |
+
+`retryable:true` only on `network`, `upstream`, `rate_limit`. Everything else is caller-fixable or operator-fixable.

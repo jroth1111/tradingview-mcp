@@ -19,6 +19,7 @@
 - Pine/calendar direct probes: `docs/tradingview-pine-calendar-direct-probes-2026-05-07.md`
 - Shell page bundle mining: `docs/tradingview-shell-page-bundle-mining-2026-05-07.md`
 - Completion audit: `docs/tradingview-rediscovery-completion-audit-2026-05-07.md`
+- Widgets/embed runtime capture: `docs/tradingview-widgets-embed-runtime-2026-05-07.md`
 - Scope not yet covered: authenticated browser network capture, plan-gated UI paths, full WebSocket frame capture, source maps, account-specific watchlists/layouts/alerts, mobile app traffic, and all locale/product pages beyond sampled pages
 
 This is not a completeness claim. The purpose of this pass is to turn the unknown-unknown workflow into durable evidence and identify the next probes required to keep rediscovering surfaces when TradingView changes.
@@ -176,10 +177,13 @@ Evidence:
 
 - Chart page widget-detection patterns include `widgetembed`, `widgetstatic`, `mediumwidgetembed`, `twitter-chart`, `telegram/chart`, `embed/<id>`, `widgetpopup`, `extension`, `idea-popup`, `hotlistswidgetembed`, `marketoverviewwidgetembed`, `eventswidgetembed`, `tickerswidgetembed`, `forexcrossrateswidgetembed`, `forexheatmapwidgetembed`, `marketquoteswidgetembed`, `screenerwidget`, `cryptomktscreenerwidget`, `technical-analysis-widget-embed`, `singlequotewidgetembed`, `embed-widget`, and `widget-docs`.
 - Hosts include `www.tradingview-widget.com`.
+- Follow-up widget pass proved live public docs, S3 external-embedding scripts, and 19 no-cookie `https://www.tradingview-widget.com/embed-widget/{id}/` iframe shells. Captured IDs include `advanced-chart`, `screener`, `symbol-overview`, `tickers`, `ticker-tape`, `single-quote`, `stock-heatmap`, `crypto-coins-heatmap`, `etf-heatmap`, `forex-heat-map`, `market-overview`, `market-quotes`, `symbol-info`, `technical-analysis`, `financials`, `symbol-profile`, `events`, `timeline`, and `forex-cross-rates`.
+- Widget iframe globals expose `widgetdata.tradingview.com`, `widgetdata-backup.tradingview.com`, `widget-sheriff.tradingview-widget.com`, `symbol-search.tradingview.com`, `crud-storage.tradingview.com`, and per-widget scanner/news/calendar/Pine/pushstream hosts.
+- Entry-bundle mining found the Advanced Chart postMessage API (`set-symbol`, `set-interval`, `tv-widget-ready`, `tv-widget-load`, `tv-widget-no-data`, resize and symbol-click events), a broad advanced-chart analysis view registry, and widget-specific screener product families.
 
 Repo support:
 
-- Absent as a first-class surface, except indirectly through some market/TA endpoints.
+- Absent as a first-class surface, except indirectly through chart data, scanner, market, news, calendar, and TA endpoints.
 
 ### Auth, User, Billing, Mobile, And Account Infrastructure
 
@@ -208,7 +212,7 @@ Repo support:
 | Options | options hosts/chunks/routes | absent | Options page and symbol tab network capture |
 | Portfolio/paper trading | portfolio/papertrading hosts/chunks | absent | Authenticated paper account and portfolio dialog capture |
 | Brokers/trading | broker flags/chunks/rest-demo | absent | Read-only broker selector/session capability map; no order placement |
-| Widgets/embeds | widget route patterns | absent | Enumerate embed route behavior and unauth widget data APIs |
+| Widgets/embeds | widget route patterns, docs route tree, public iframe shells, S3 embed scripts, runtime host globals, entry-bundle API leads | absent/indirect | Browser-capture representative widget XHR/WebSocket frames and decide first-class Worker model vs mapping to existing primitives |
 | News alerts/notifications | notifications/news/channel + news chunks | partial | News alert creation/channel subscription capture |
 | Community uploads | `ideas-uploader`, user upload CDN | absent | Read-only inspect upload endpoints; no publish mutation without explicit authorization |
 
@@ -218,6 +222,8 @@ Repo support:
 - Gated/root-only: `economic-calendar.tradingview.com/` returned 403; treat as host exists but root path not publicly readable.
 - Root path absent: `news-headlines.tradingview.com/` and `scanner.tradingview.com/` returned 404 at root; endpoint-specific routes may still exist.
 - Endpoint mismatch: `pricealerts.tradingview.com/is_alive` returned HTTP 200 with TradingView JSON `no_such_endpoint`; host exists, this specific path is not valid.
+- Harness/invocation: the first widget docs fetch corrupted gzip bytes by writing them as UTF-8; the corrected binary/decompression fetch succeeded, so the failure is not TradingView availability evidence.
+- Route-discovery miss: several guessed widget docs paths returned 404 even though canonical routes existed elsewhere in the docs tree. Treat guessed route failures as route mismatch until the canonical index is checked.
 - Positive live endpoint: scanner enum and Pine facade auth probes returned HTTP 200.
 
 ## Prioritized Roadmap
