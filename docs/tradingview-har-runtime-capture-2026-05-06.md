@@ -12,6 +12,7 @@
 - Cookie-bearing requests: 95
 - Authorization header requests: 0
 - Response `Set-Cookie` entries: 1
+- Redacted schema sketches: `docs/tradingview-har-schema-sketches-2026-05-06.md`
 
 The HAR is sensitive and was not committed. This artifact records only sanitized host/path/method/status/auth-evidence summaries.
 
