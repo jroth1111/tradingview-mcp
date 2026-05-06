@@ -40,6 +40,8 @@ A clean no-session browser render of `/pine-screener/` produced the visible text
 
 Move yield curves from static/page-only to unauthenticated-achievable for the default component-data endpoint.
 
+Follow-up runtime probes in `docs/tradingview-yield-curves-runtime-probes-2026-05-07.md` confirmed the direct default payload and browser-rendered table, and classified naive `country=de`, `country=jp`, `/yield-curves/de/`, and `#country=de` probes as parameter/route misses rather than non-US absence.
+
 Keep open:
 
 - Macro maps data population, because the no-cookie component-data endpoint returned shell state with null indicators/timestamps/type table.
@@ -59,4 +61,4 @@ Current Worker has no first-class yield curves, macro maps, or Pine Screener rou
 
 1. Macro maps browser interaction to record ChartApi/WebSocket frames for indicator/timestamp changes.
 2. Authenticated Pine Screener interaction to distinguish login, feature-flag, and plan entitlement behavior for `/pine_scanner_http/scan`.
-3. Yield curves parameter exploration: country changes, settings fields, and whether component-data accepts explicit country/query state.
+3. Yield curves UI-derived parameter exploration: country changes, settings fields, and whether add/clone/delete are local-only or persisted. Simple `country=` query, path suffix, and fragment guesses did not change the default US component-data payload.

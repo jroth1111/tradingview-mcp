@@ -22,6 +22,7 @@
 - Widgets/embed runtime capture: `docs/tradingview-widgets-embed-runtime-2026-05-07.md`
 - Widget browser runtime capture: `docs/tradingview-widget-browser-runtime-capture-2026-05-07.md`
 - Macro maps browser runtime capture: `docs/tradingview-macro-maps-browser-runtime-capture-2026-05-07.md`
+- Yield curves runtime probes: `docs/tradingview-yield-curves-runtime-probes-2026-05-07.md`
 - Scope not yet covered: authenticated browser network capture, plan-gated UI paths, full WebSocket frame capture, source maps, account-specific watchlists/layouts/alerts, mobile app traffic, and all locale/product pages beyond sampled pages
 
 This is not a completeness claim. The purpose of this pass is to turn the unknown-unknown workflow into durable evidence and identify the next probes required to keep rediscovering surfaces when TradingView changes.
@@ -209,7 +210,7 @@ Repo support:
 | Screener facade/storage | `screener-facade`, `screener-storage`, screener flags | absent/partial | Save/autosave screener view and alert flow capture |
 | Heatmaps | `/heatmap/stock`, `/heatmap/etf`, `/heatmap/crypto` | absent | Fetch pages and bundle chunks; identify backend calls |
 | Economic calendar | host + 403 root + UI chunks | partial | Trigger calendar UI with query params and capture XHR |
-| Yield curves/macro maps/seasonals | route/chunk leads; macro maps default `IRYY` browser WebSocket quote snapshots over `data.tradingview.com` | absent/partial | Capture macro map indicator switch, country group, and historical slider frames; continue yield/seasonals parameter exploration |
+| Yield curves/macro maps/seasonals | route/chunk leads; macro maps default `IRYY` browser WebSocket quote snapshots over `data.tradingview.com`; yield curves default component-data and browser-rendered US table | absent/partial | Capture macro map indicator switch, country group, and historical slider frames; capture yield country/settings UI state and seasonals parameter exploration |
 | Pine editor/save/compile | Pine chunks, scripts/study-template paths | partial | Authenticated Pine editor save/compile/list capture |
 | Watchlists/symbol lists | `/api/v1/symbols_list/*`, watchlist chunks | absent | Authenticated watchlist CRUD capture |
 | Options | options hosts/chunks/routes | absent | Options page and symbol tab network capture |
