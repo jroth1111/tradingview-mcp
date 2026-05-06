@@ -21,6 +21,7 @@ This pass browser-loaded representative public iframe widgets and captured real 
 | Validation input | `/tmp/tv-widget-cdp.wtHDlq/capture/summary.json` plus per-widget JSON | summarized into this artifact; raw temp files not committed | sanitized derived evidence |
 | Scanner/body capture | second Chrome CDP pass on port 9224 with `Network.requestWillBeSent.request.postData` | screener and stock-heatmap scanner bodies plus technical-analysis field query captured | browser runtime body shape |
 | Direct service probes | Node `fetch` to `chartevents-reuters` and Widget Sheriff routes | chart-events default returned HTTP 200 no-data JSON; Widget Sheriff success and missing-origin failure classified | direct public probe |
+| Screener preset direct probes | Node `fetch` to `scanner.tradingview.com/{market}/scan?api_key=widget_user_token&label-product=screener-{type}-old` with widget-derived columns | representative forex, crypto, futures, crypto market, and bonds bodies returned populated public data; `preset:"general"` and bonds `Recommend.All` failures classified as invocation/field-shape misses | direct public probe |
 
 Counterexample shown: if widget runtime were assumed to be static HTML plus external-embedding JS, this capture disproves that by showing live `widgetdata` WebSocket sessions, scanner XHR, Widget Sheriff requests, chart-events REST, support portal fetches, logo/CDN fetches, and public pushstream connections during first-load widget rendering.
 
@@ -192,6 +193,27 @@ Sanitized first-load scan body shape:
 }
 ```
 
+#### Screener Widget Product-Family Bodies
+
+The public S3 embed script `embed-widget-screener.js` builds a `screener` iframe whose `locale`, `symbol`, and `market` are query parameters; the rest of the widget settings are hash JSON. The widget docs config exposes `market`, `defaultColumn`, and `defaultScreen`; the runtime screener bundle contains product families for stock, forex, crypto, crypto market, futures, continuous futures, CFDs, currencies, bonds, sectors, industries, pre-market, and post-market.
+
+Direct public scanner probes using `api_key=widget_user_token` and widget-style `label-product=screener-{type}-old` returned populated data for representative non-stock widget families:
+
+| Probe | Endpoint | Body traits | Result |
+| --- | --- | --- | --- |
+| Forex overview | `POST scanner.tradingview.com/forex/scan?api_key=widget_user_token&label-product=screener-forex-old` | `columns` included `name`, `close`, `change`, `bid`, `ask`, `high`, `low`, `Recommend.All`, `description`, `type`; `range:[0,10]`; `sortBy:name` | HTTP 200, `totalCount:6402`, first symbol `FX_IDC:AEDAUD` |
+| Crypto overview | `POST scanner.tradingview.com/crypto/scan?api_key=widget_user_token&label-product=screener-crypto-old` | `columns` included `name`, `close`, `change`, `high`, `low`, `volume`, `24h_vol|5`, `24h_vol_change|5`, `Recommend.All`, `exchange`, `description` | HTTP 200, `totalCount:57085`, first symbol `COINBASE:00USD` |
+| Futures overview | `POST scanner.tradingview.com/futures/scan?api_key=widget_user_token&label-product=screener-futures-old` | `columns` included `logoid`, `name`, `close`, `change`, `change_abs`, `high`, `low`, `Recommend.All`, `description` | HTTP 200, `totalCount:53587`, first symbol `CBOT_MINI:10Y1!` |
+| Crypto market overview | `POST scanner.tradingview.com/crypto/scan?api_key=widget_user_token&label-product=screener-crypto_mkt-old` | `columns` included `base_currency_logoid`, `sector`, `market_cap_calc`, `market_cap_diluted_calc`, `close`, supply and traded-value fields | HTTP 200, `totalCount:57085`, first symbol `BYBIT:BTCUSD` |
+| Bonds overview | `POST scanner.tradingview.com/bonds/scan?api_key=widget_user_token&label-product=screener-bonds-old` | `columns` included `logoid`, `name`, `coupon`, `maturity_date`, `close`, `change`, `change_abs`, `high`, `low`, `description` | HTTP 200, `totalCount:1145`, first symbol `TVC:AT01` |
+| Bonds yield switch | same bonds endpoint | same columns plus `filter:[{left:"description",operation:"match",right:"YIELD$"}]` | HTTP 200, `totalCount:578`, first symbol `TVC:AT01Y` |
+| Bonds non-yield switch | same bonds endpoint | same columns plus `filter:[{left:"description",operation:"nmatch",right:"YIELD$"}]` | HTTP 200, `totalCount:567`, first symbol `TVC:AT01` |
+
+Two negative probes matter for robustness:
+
+- Adding `preset:"general"` to these scanner bodies returned JSON 400 `preset not found: general`. The widget's `defaultScreen:"general"` is a UI/default-set setting, not a scanner API `preset` field for these direct bodies.
+- Including `Recommend.All` in the bonds overview columns returned JSON 400 `Unknown field "Recommend.All"`. The live bonds scanner field set is narrower than the static overview table suggests; treat this as a field-shape mismatch, not auth, downgrade, or network failure.
+
 ### Stock Heatmap Widget
 
 First-load stock heatmap runtime is also scanner-backed:
@@ -357,7 +379,7 @@ Representative widget runtime now proves these missing or indirect Worker famili
 - Widget metadata/catalog route for docs, script versions, iframe IDs, and supported config presets.
 - Widget Sheriff check surface and its 204 success semantics.
 - `widgetdata` WebSocket session modeling for widget contexts using `widget_user_token`.
-- Widget-specific scanner presets for screener and heatmap widgets.
+- Widget-specific scanner bodies for screener and heatmap widgets, including representative stock, forex, crypto, crypto market, futures, bonds, and bond yield-switch bodies.
 - Chart-events Reuters feed and economic-calendar related-history feed for events widget.
 - Advanced Chart, Market Overview, Symbol Info, and Technical Analysis quote/session frame templates.
 - Advanced Chart parent/iframe `postMessage` control and `quoteUpdate` event schema for a public `set-symbol` change, plus bundle-verified `set-interval -> setResolution` behavior.
@@ -369,7 +391,7 @@ Existing Worker primitives overlap with parts of this behavior (`quotes`, generi
 
 - Advanced Chart postMessage socket-frame deltas after `set-symbol`/`set-interval`; parent event behavior and interval handler semantics are now proven or bundle-verified.
 - Longer timeline/news interaction capture only for optional pagination/filtering beyond the proven SSR/init-data first-load rows.
-- Additional widget-specific scanner bodies for crypto/forex/bond/futures presets beyond the captured stock screener and stock heatmap defaults.
+- Additional widget-specific scanner interaction bodies beyond representative first-load/default family bodies: saved views, toolbar changes, custom filters, column changes, and sort/filter UI events.
 - Worker design decision: first-class `/v1/widgets/*` metadata/runtime routes vs mapping widgets onto existing scanner/chart/news/calendar primitives.
 
 ## Completion Decision

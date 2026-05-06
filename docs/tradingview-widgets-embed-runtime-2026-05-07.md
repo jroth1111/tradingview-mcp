@@ -154,14 +154,14 @@ Missing or unmodeled surfaces:
 - `widgetdata` WebSocket session behavior per widget class, including `symbol-overview`, ticker/tape, market overview/quotes, heatmaps, technical analysis, and advanced chart.
 - Worker mapping for the now-classified Widget Sheriff behavior and failure semantics.
 - Widget postMessage API modeling for Advanced Chart; public `set-symbol` parent-event behavior is proven, and `set-interval` is bundle-verified as `setResolution`, while socket deltas still need runtime classification.
-- Widget-specific screener product-family presets and default column sets.
+- Widget-specific screener product-family presets and default column sets. Follow-up direct public scanner probes now cover representative forex, crypto, crypto market, futures, bonds, and bond yield-switch bodies with `api_key=widget_user_token`.
 - Widget persistence interactions through `crud-storage` where applicable.
 
 ## Next Probes
 
 1. Continue Advanced Chart controlled postMessage capture only if socket-frame deltas are needed; `set-symbol` parent `quoteUpdate` behavior is proven and `set-interval` handler semantics are bundle-verified.
 2. Run a longer timeline/news interaction capture only if optional pagination/filtering beyond first-load SSR init data matters.
-3. Capture sanitized scanner request bodies for crypto/forex/bond/futures widget presets, then compare them with product-page scanner bodies already captured in `docs/tradingview-product-runtime-capture-2026-05-07.md`.
+3. Capture interaction-driven scanner deltas for screener widget toolbar changes, custom filters, column changes, sort changes, and saved/default view behavior, then compare them with product-page scanner bodies already captured in `docs/tradingview-product-runtime-capture-2026-05-07.md`.
 4. Decide whether widgets should become a first-class Worker route family or remain mapped onto existing scanner/chart/news/calendar primitives with a metadata route.
 
 ## Completion Decision
