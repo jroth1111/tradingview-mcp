@@ -113,6 +113,39 @@ Follow-up clean no-login browser interaction started from the Table view state a
 
 This narrows the public controls gap: Table view and the visible Average/Percent display controls are local presentation variants over the decoded study payload. Year-range changes remain the public seasonals interaction likely to alter the `Seasonals@tv-basicstudies` config or trigger a study refresh.
 
+## Seasonals Year-Range Interaction
+
+Follow-up clean no-login browser interaction dragged the visible `Start year` slider thumb from `2021` to `2002` while keeping `End year` at `2026`.
+
+Observed DOM state:
+
+- before drag: `Start year` slider text `2021`; `End year` slider text `2026`
+- after drag: `Start year` slider text `2002`; `End year` slider text `2026`
+- the visible tick range remained `1980`, `1991`, `2002`, `2013`, `2026`
+
+Observed TradingView WebSocket behavior after the drag:
+
+- `chart_create_session`
+- `switch_timezone`
+- `resolve_symbol` for `INTERNAL:SEASONALS`
+- `create_series` for `1D`, count `300`, secondary interval `12M`
+- `set_future_tickmarks_mode`
+- `resolve_symbol` for `NASDAQ:AAPL`
+- `modify_series`
+- `create_study` for `Seasonals@tv-basicstudies-238!` with config `{"ticker":"NASDAQ:AAPL","years":{"start":2002,"end":2026}}`
+- `modify_study` with the same config
+- returned frames included `series_loading`, `study_loading`, and `du`
+
+The returned `du` used the same compressed study-output shape:
+
+- update key: `st2`
+- `st2.ns.d`: JSON string with `dataCompressed`
+- observed `st2.ns.d` string length: 49,349 bytes for the widened 2002-2026 probe
+
+Non-study HTTP after the drag was telemetry/ping only: `snowplow-pixel`, `data.tradingview.com/ping`, and `telemetry.tradingview.com/free/report`. No scanner or separate REST data endpoint was introduced.
+
+This closes the public year-range interaction gap. Seasonals remains a chart-session/basic-study surface: widening the range re-runs the study with a different `years` config and returns the same compressed `du` schema.
+
 ## Forward Curve Runtime
 
 Clean no-login browser loads:
@@ -191,6 +224,7 @@ This closes the first-pass forward-curve scanner body/schema gap for representat
 | Seasonals `du` compressed study output decoded to zipped JSON with `performance` and `seasonals` keys | unauthenticated-achievable decoded study schema | Model seasonals as chart-study output rather than REST |
 | Seasonals Table view toggle emitted no new TradingView backend requests and rendered decoded performance table locally | local UI rendering over existing data | Do not model Table view as a separate upstream endpoint |
 | Seasonals Average/Percent controls emitted no new scanner/chart REST or study-refresh WebSocket traffic in the observed no-login Table view run | local UI presentation controls | Do not model these controls as separate upstream endpoints unless future interactions prove a backend delta |
+| Seasonals year-range drag from 2021 to 2002 emitted `create_study` and `modify_study` with `years.start=2002,end=2026`, then returned `du` compressed study output | unauthenticated-achievable study reconfiguration | Model year ranges as `Seasonals@tv-basicstudies-*` config, not a separate endpoint |
 | CDP script process stayed open after writing the artifact | harness lifecycle bug | Exact Chrome/Node PIDs were terminated and temp profile removed; captured runtime evidence remains valid |
 | Pushstream opened but no channel messages were needed for these views | observed-open-idle | Keep pushstream trigger behavior open elsewhere |
 
@@ -207,9 +241,9 @@ Potential modeling paths:
 
 ## Remaining Gaps
 
-1. Probe seasonals year-range interactions.
-2. Probe additional forward-curve roots and interaction variants.
+1. Probe additional forward-curve roots and interaction variants.
+2. Probe broader seasonals symbol classes if Worker modeling needs non-stock coverage.
 
 ## Completion Decision
 
-Seasonals and forward curves are now public browser-runtime surfaces, not merely static leads. Seasonals study output is decoded into a stable first-pass JSON schema, Table view plus Average/Percent display controls are local presentation variants, and forward-curve scanner schema is verified for representative `CME_MINI:ES` and `NYMEX:CL` roots. The full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, macro-map remaining UI interactions, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.
+Seasonals and forward curves are now public browser-runtime surfaces, not merely static leads. Seasonals study output is decoded into a stable first-pass JSON schema, Table view plus Average/Percent display controls are local presentation variants, year-range changes are verified as `Seasonals@tv-basicstudies-*` config updates, and forward-curve scanner schema is verified for representative `CME_MINI:ES` and `NYMEX:CL` roots. The full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, macro-map remaining UI interactions, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.
