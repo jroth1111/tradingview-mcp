@@ -4,6 +4,7 @@ const constants = readFileSync("packages/tradingview-core/src/constants.ts", "ut
 const types = readFileSync("packages/tradingview-core/src/types.ts", "utf8");
 const skill = readFileSync("skills/tradingview/SKILL.md", "utf8");
 const auth = readFileSync("skills/tradingview/auth.md", "utf8");
+const rediscovery = readFileSync("skills/tradingview/surface-rediscovery.md", "utf8");
 const workerTradingview = readFileSync("worker/src/tradingview.ts", "utf8");
 
 for (const required of ["TRADINGVIEW_WS_ENDPOINTS", "VALID_TIMEFRAMES", "TIMEFRAME_MAP"]) {
@@ -19,6 +20,24 @@ if (!/export\s+interface\s+Candle\b/.test(types)) {
 for (const required of ["Runtime Authority", "packages/tradingview-core", "worker/openapi.yaml"]) {
   if (!skill.includes(required)) {
     throw new Error(`skill missing authority reference: ${required}`);
+  }
+}
+
+if (!skill.includes("surface-rediscovery.md")) {
+  throw new Error("skill missing surface rediscovery reference");
+}
+
+for (const required of [
+  "unknown unknowns",
+  "WebSocket frames",
+  "Bundled JavaScript",
+  "plan-gated",
+  "lead only",
+  "Do not downgrade",
+  "Continue exploring until marginal discoveries flatten",
+]) {
+  if (!rediscovery.includes(required)) {
+    throw new Error(`surface rediscovery reference missing requirement: ${required}`);
   }
 }
 

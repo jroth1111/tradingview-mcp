@@ -21,6 +21,7 @@ All Worker requests that can reach TradingView upstream require HMAC authorizati
 
 ## Workflows
 
+- `surface-rediscovery.md` - unknown-unknown discovery workflow for periodically remapping visible and hidden TradingView surfaces before expanding Worker support.
 - `workflows/backtest-strategy.md`
 - `workflows/analyze-stock.md`
 - `workflows/screen-to-idea.md`
