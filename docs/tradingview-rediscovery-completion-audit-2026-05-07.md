@@ -31,6 +31,7 @@ This audit does not mark the objective complete. It maps completed evidence and 
 | Product runtime surface expansion | `docs/tradingview-product-runtime-capture-2026-05-07.md` | verified for ETF/crypto heatmaps and CEX/DEX/bond/ETF screeners |
 | Shell-page bundle mining | `docs/tradingview-shell-page-bundle-mining-2026-05-07.md` | verified for yield-curves component data, macro-maps shell, Pine Screener transport/UI gate |
 | Pine Screener / macro maps decompilation | `docs/tradingview-pine-screener-macro-decompilation-2026-05-07.md` | verified for Pine Screener request body construction, no-cookie auth/header gate, and macro maps ChartApi-backed runtime path |
+| Macro maps browser runtime capture | `docs/tradingview-macro-maps-browser-runtime-capture-2026-05-07.md` | verified for public default `IRYY` macro-map `data.tradingview.com` WebSocket session and populated `ECONOMICS:*IRYY` quote snapshots with `unauthorized_user_token`; non-default interactions still open |
 | Widget/embed runtime inventory | `docs/tradingview-widgets-embed-runtime-2026-05-07.md` | verified for public docs routes, S3 embed scripts, iframe shells, runtime host globals, and selected entry-bundle API leads; interactive frame schemas still open |
 | Widget browser runtime capture | `docs/tradingview-widget-browser-runtime-capture-2026-05-07.md` | verified for representative public widget XHR/WebSocket hosts and frame methods across advanced-chart, screener, stock-heatmap, market-overview, timeline, events, technical-analysis, and symbol-info; also captures stock screener/heatmap scanner bodies, technical-analysis scanner fields, Widget Sheriff validation behavior, and chart-events no-data envelope |
 | Preserve robust failure classes | failure sections across rediscovery/direct/product/shell artifacts classify auth, shape, invocation, network, endpoint mismatch, root-path absence, and observed-open-idle | verified |
@@ -62,7 +63,7 @@ This audit does not mark the objective complete. It maps completed evidence and 
 | Economic calendar | public events endpoint and scanner calendars captured | response schema detail and edge filters |
 | IPO/markets earnings/related bonds | exact no-cookie HAR body replay works | formal response schema sketches |
 | Yield curves | component-data endpoint public | parameter exploration and country/settings changes |
-| Macro maps | component-data shell public; decompiled ChartApi quote/series data path | browser frame capture for default indicator, indicator switch, country group switch, and historical slider |
+| Macro maps | component-data shell public; decompiled ChartApi quote/series data path; browser runtime capture for default `IRYY` indicator quote snapshots over `data.tradingview.com` | indicator switch, country group switch, historical slider/series frames, and full quote field list |
 | Fundamentals | fundamentals config and scanner symbol public | response schema consolidation |
 | News mediator | public HAR/runtime news flow and symbol view | Worker parity planning vs existing news-headlines route |
 | Ideas/Minds/community | existing Worker partial support and static leads | broader authenticated/community interactions |
@@ -81,7 +82,7 @@ The rediscovery has strong public, HAR, direct-probe, browser-runtime, WebSocket
 - Replay and deep-backtesting UI WebSocket frame capture.
 - Portfolio and paper trading runtime capture.
 - Pine Screener authenticated/feature/plan behavior after the scan body is now derived.
-- Macro maps populated ChartApi/WebSocket frames after the runtime path is now identified.
+- Macro maps non-default interaction frames: indicator switch, country group switch, historical slider/series frames, and full quote field list.
 - Charts-polygon intended trigger.
 - Widget/embed controlled interaction schemas, broader preset bodies, and Worker modeling after representative public browser runtime capture.
 - Mobile/desktop app traffic, if the objective includes non-web TradingView clients.
