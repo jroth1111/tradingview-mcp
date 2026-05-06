@@ -21,6 +21,8 @@ This pass promotes macro maps from "component-data shell plus decompiled ChartAp
 | Cleanup | `kill -TERM 59878; sleep 2; pgrep -laf 'remote-debugging-port=9225|tv-macro-cdp.led7gP'` | no Chrome process remained for the temp profile | local cleanup |
 | Direct macro quote probe | Node `WebSocket` to `wss://data.tradingview.com/socket.io/websocket?from=macro-maps/&date=...&auth=sessionid` with `unauthorized_user_token`, `quote_create_session`, full macro `quote_set_fields`, and `quote_add_symbols` for `ECONOMICS:US{IRYY,GDP,UR,INTR,GDG}` | HTTP/WebSocket connection opened and returned populated public `qsd` frames for all five symbols | direct public WebSocket probe |
 | Direct macro series probe | Node `WebSocket` to the same public macro-map socket with `chart_create_session`, `resolve_symbol` for `ECONOMICS:USGDP`, and `create_series` interval `12M` | returned `series_loading`, `symbol_resolved`, `timescale_update`, and `series_completed` frames | direct public WebSocket probe |
+| UI indicator switch | clean no-login Chrome CDP clicked `Interest Rate` radio after default `Inflation Rate` load | `Interest Rate` became checked; WebSocket sent one `quote_add_symbols` batch over `ECONOMICS:*INTR` plus many `quote_remove_symbols`; no new REST data endpoint | browser runtime |
+| UI date slider drag | clean no-login Chrome CDP dragged `Select date` slider from latest toward early 2004 while `Interest Rate` was active | page list changed to historical `*INTR` observations; loaded `multi-group-series-snapshoter` bundle and sent chart sessions with `Overlay@tv-basicstudies` studies over economic symbols | browser runtime |
 
 Counterexample shown: if macro maps were treated as unavailable because `component-data-only=1` returned null active data for a guest, this capture disproves that. The browser still opened chart data and received populated `ECONOMICS:*IRYY` quote frames with no logged-in session.
 
@@ -121,6 +123,54 @@ This gives a public protocol shape for the historical/slider data path: macro ma
 
 This confirms the decompiled model from `docs/tradingview-pine-screener-macro-decompilation-2026-05-07.md`: populated macro maps are chart-data-backed economic-symbol quote flows, not a simple REST scanner endpoint.
 
+## UI Interaction Capture
+
+Clean no-login browser UI interaction added two runtime details beyond the direct probes.
+
+### Indicator Switch
+
+Clicking the `Interest Rate` radio changed the checked state from:
+
+- `Inflation Rate`: `true`
+- `Interest Rate`: `false`
+
+to:
+
+- `Inflation Rate`: `false`
+- `Interest Rate`: `true`
+
+The visible list changed from inflation symbols such as `ARIRYY`, `TRIRYY`, `RUIRYY`, `AUIRYY`, and `USIRYY` to interest-rate symbols such as `TRINTR`, `ARINTR`, `BRINTR`, `RUINTR`, and `USINTR`.
+
+Post-click WebSocket send summary:
+
+- one `quote_add_symbols` batch for `ECONOMICS:*INTR`
+- 266 `quote_remove_symbols` messages for retiring prior or unavailable macro-map symbols
+- no `resolve_symbol`, `create_series`, `create_study`, scanner REST, or separate macro REST data endpoint in the indicator-switch phase
+
+This proves the UI-specific indicator switch is a quote-session symbol-family replacement. For filter-only/latest views, the indicator id maps directly into `ECONOMICS:<country><indicator>`.
+
+### Historical Date Slider
+
+Dragging the `Select date` slider while `Interest Rate` was active changed the visible date from latest values around `May 6, 2026` to a historical point shown as `Jan 10, 2004`. The ranked list changed to historical observations such as:
+
+- `TRINTR 26% Dec 31, 2003`
+- `BRINTR 16.5% Dec 31, 2003`
+- `ZAINTR 8% Dec 31, 2003`
+- `USINTR 1% Dec 31, 2003`
+- `JPINTR 0% Dec 31, 2003`
+
+Post-drag network/runtime behavior:
+
+- loaded `multi-group-series-snapshoter.*.js`
+- no scanner or separate macro REST data endpoint
+- WebSocket sent two `chart_create_session` frames
+- WebSocket sent two `resolve_symbol` frames, sample symbols `ECONOMICS:SRINTR` and `ECONOMICS:DZINTR`
+- WebSocket sent two `create_series` frames with interval `D` and a `["bar_count", 1073692801, 1]` selector
+- WebSocket sent 168 `create_study` frames for `Overlay@tv-basicstudies-164!`, with one overlay per economic symbol, e.g. `{"symbol":"ECONOMICS:TRINTR"}`, `{"symbol":"ECONOMICS:CAINTR"}`, `{"symbol":"ECONOMICS:GBINTR"}`
+- teardown emitted 168 `remove_study` frames and two `chart_delete_session` frames
+
+This closes the UI-specific historical slider sequencing gap: the slider uses a multi-group chart-series snapshoter path, not the quote-only latest snapshot path.
+
 ## Classification
 
 | Observation | Classification | Handling |
@@ -129,6 +179,8 @@ This confirms the decompiled model from `docs/tradingview-pine-screener-macro-de
 | Clean browser used `unauthorized_user_token` and still received `qsd` frames | unauthenticated-achievable for default indicator quote snapshots | Worker can model a public default macro-map quote path |
 | Direct no-cookie probe returned `qsd` for `USGDP`, `USUR`, `USINTR`, and `USGDG` | unauthenticated-achievable for non-default indicator quote snapshots | Treat indicator switch as an economic-symbol suffix change when the UI does not add extra filters |
 | Direct no-cookie probe returned `timescale_update` and `series_completed` for `ECONOMICS:USGDP` | unauthenticated-achievable for historical economic series | Model historical slider snapshots through chart `resolve_symbol`/`create_series` flow |
+| UI Interest Rate switch emitted `quote_add_symbols` for `ECONOMICS:*INTR` and many `quote_remove_symbols`; page values changed to `*INTR` symbols | unauthenticated-achievable UI indicator switch | Model filter/latest indicator switching as quote session symbol-family replacement |
+| UI date slider loaded `multi-group-series-snapshoter` and emitted chart sessions with `Overlay@tv-basicstudies-164!` for many `ECONOMICS:*INTR` symbols | unauthenticated-achievable historical UI slider | Model historical map snapshots as batched chart/overlay studies, not a REST endpoint |
 | Some `ECONOMICS:*IRYY` symbols returned `no_such_symbol` | partial availability / symbol coverage | Keep per-country availability/errors in schema rather than failing whole map |
 | Public pushstream opened but stayed idle | observed-open-idle | Needs trigger or ignore for macro-map data modeling |
 
@@ -144,15 +196,14 @@ Current Worker chart-data primitives can likely support macro maps, but there is
 - quote session field set for availability/latest values
 - partial per-symbol `ok` vs `no_such_symbol` results
 - optional historical series snapshots for slider/timestamp interactions
+- UI historical snapshoter behavior using `multi-group-series-snapshoter`, `create_series` with a `bar_count` timestamp selector, and many `Overlay@tv-basicstudies-*` studies over economic symbols
 - runtime-accepted macro quote fields: `pro_name`, `short_name`, `last_price`, `country_code`, `available_data_range_end_date`, `available_data_range_begin_date`, `short_description`, `data_frequency`, `unit_id`, `value_unit_id`, `currency_code`, `measure`, and `lp`
 
 ## Remaining Macro Maps Gaps
 
-- Capture UI-specific indicator switch frames for filter-only indicators; direct protocol probes already prove public quote snapshots for `INTR`, `GDP`, `UR`, and `GDG`.
 - Capture country group switch behavior and exact country-code list changes.
-- Capture UI-specific historical slider event sequencing; direct protocol probes already prove the underlying public `resolve_symbol`/`create_series` series-snapshot path for `ECONOMICS:USGDP`.
 - Decide Worker design: first-class `/v1/macro-maps` composed product route vs lower-level economic quote/series helpers.
 
 ## Completion Decision
 
-Macro maps is materially upgraded: the default no-login browser path now has populated chart-data WebSocket evidence, direct public probes cover non-default economic indicator quote snapshots, and a direct public historical economic series path is proven. The broader full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth/entitlement, widget controlled interactions, mobile/desktop traffic, and macro-map UI-specific country/filter interactions remain open.
+Macro maps is materially upgraded: the default no-login browser path now has populated chart-data WebSocket evidence, direct public probes cover non-default economic indicator quote snapshots, direct public historical economic series path is proven, UI indicator switch behavior is captured, and UI historical slider sequencing is captured. The broader full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth/entitlement, widget controlled interactions, mobile/desktop traffic, and macro-map country-group/list interactions remain open.
