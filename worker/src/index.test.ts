@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import app, { scheduled } from "./index";
 import { getStoredSession, setStoredSession } from "./auth-store";
 import * as tv from "./tradingview";
+import * as pubscripts from "./pubscripts";
+import * as alertsModule from "./alerts";
+import * as templates from "./templates";
 import * as cacheModule from "./cache";
 import * as pruneModule from "./prune";
 
@@ -331,6 +334,204 @@ describe("Worker auth boundary", () => {
     tokenSpy.mockRestore();
     candleSpy.mockRestore();
     profileSpy.mockRestore();
+  });
+});
+
+describe("New surfaces (P3-P6, P10)", () => {
+  it("/v1/indicators/inputs forwards to typed-input helper", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const spy = vi.spyOn(tv, "getTypedIndicatorInputs").mockResolvedValueOnce({
+      id: "STD;RSI",
+      version: "60",
+      inputs: [{ id: "in_0", name: "Length", type: "integer", defval: 14 }],
+    });
+    const body = JSON.stringify({ id: "STD;RSI" });
+    const headers = await signRequest("POST", "/v1/indicators/inputs", body);
+    const res = await app.request("/v1/indicators/inputs", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as any;
+    expect(json.result.inputs[0].type).toBe("integer");
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "STD;RSI", sessionId: "stored-session" }),
+    );
+    spy.mockRestore();
+  });
+
+  it("/v1/indicators/builtin caches via CACHE_META and forwards filters", async () => {
+    const env = makeEnv();
+    const spy = vi.spyOn(pubscripts, "getBuiltinCatalog").mockResolvedValueOnce({
+      count: 2,
+      cached: false,
+      results: [
+        { id: "STD;RSI", version: "60", name: "RSI", kind: "study", filter: "standard" },
+        { id: "STD;MACD", version: "60", name: "MACD", kind: "study", filter: "standard" },
+      ],
+    });
+    const body = JSON.stringify({ kind: "study", q: "rsi" });
+    const headers = await signRequest("POST", "/v1/indicators/builtin", body);
+    const res = await app.request("/v1/indicators/builtin", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as any;
+    expect(json.result.count).toBe(2);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "study", q: "rsi", cache: env.CACHE_META }),
+    );
+    spy.mockRestore();
+  });
+
+  it("/v1/pubscripts/library passes through query params", async () => {
+    const env = makeEnv();
+    const spy = vi
+      .spyOn(pubscripts, "getPubLibrary")
+      .mockResolvedValueOnce({ results: [{ scriptIdPart: "PUB;abc" }] });
+    const body = JSON.stringify({ offset: 0, count: 5, sort: "top" });
+    const headers = await signRequest("POST", "/v1/pubscripts/library", body);
+    const res = await app.request("/v1/pubscripts/library", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ count: 5, sort: "top" }));
+    spy.mockRestore();
+  });
+
+  it("/v1/pubscripts/personal-access requires a session", async () => {
+    const env = makeEnv();
+    const body = JSON.stringify({});
+    const headers = await signRequest("POST", "/v1/pubscripts/personal-access", body);
+    const res = await app.request("/v1/pubscripts/personal-access", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "sessionId required" });
+  });
+
+  it("/v1/alerts/list requires username", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const body = JSON.stringify({ userId: 12345 });
+    const headers = await signRequest("POST", "/v1/alerts/list", body);
+    const res = await app.request("/v1/alerts/list", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "username required" });
+  });
+
+  it("/v1/alerts/list dispatches to listAlerts with stored session", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const spy = vi
+      .spyOn(alertsModule, "listAlerts")
+      .mockResolvedValueOnce({ s: "ok", r: [] });
+    const body = JSON.stringify({ userId: 12345, username: "tester" });
+    const headers = await signRequest("POST", "/v1/alerts/list", body);
+    const res = await app.request("/v1/alerts/list", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "stored-session", username: "tester" }),
+      12345,
+    );
+    spy.mockRestore();
+  });
+
+  it("/v1/alerts/delete dispatches via the bulk-op handler", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const spy = vi
+      .spyOn(alertsModule, "deleteAlerts")
+      .mockResolvedValueOnce({ s: "ok" });
+    const body = JSON.stringify({ alerts: [1, 2, 3], username: "tester" });
+    const headers = await signRequest("POST", "/v1/alerts/delete", body);
+    const res = await app.request("/v1/alerts/delete", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "stored-session" }),
+      [1, 2, 3],
+    );
+    spy.mockRestore();
+  });
+
+  it("/v1/alerts/pine-alert combines gen_alert and create_alert", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const genSpy = vi
+      .spyOn(alertsModule, "generatePineAlert")
+      .mockResolvedValueOnce({ alert_info: { foo: "bar" } });
+    const createSpy = vi
+      .spyOn(alertsModule, "createAlert")
+      .mockResolvedValueOnce({ s: "ok", id: 99 });
+    const body = JSON.stringify({
+      alertInfo: { source: "//@version=5\nplot(close)" },
+      alert: { name: "x", symbol: "AAPL" },
+      username: "tester",
+    });
+    const headers = await signRequest("POST", "/v1/alerts/pine-alert", body);
+    const res = await app.request("/v1/alerts/pine-alert", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    expect(genSpy).toHaveBeenCalled();
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ username: "tester" }),
+      expect.objectContaining({
+        name: "x",
+        symbol: "AAPL",
+        alert_info: { foo: "bar" },
+        condition: { type: "pine_alert" },
+      }),
+    );
+    genSpy.mockRestore();
+    createSpy.mockRestore();
+  });
+
+  it("/v1/study-templates/list dispatches to template helper", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const spy = vi
+      .spyOn(templates, "listStudyTemplates")
+      .mockResolvedValueOnce({ custom: [], standard: [], fundamentals: [] });
+    const body = JSON.stringify({});
+    const headers = await signRequest("POST", "/v1/study-templates/list", body);
+    const res = await app.request("/v1/study-templates/list", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "stored-session" }),
+    );
+    spy.mockRestore();
+  });
+
+  it("/v1/study-templates/create rejects non-string content", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const body = JSON.stringify({ name: "probe", content: { panes: [] } });
+    const headers = await signRequest("POST", "/v1/study-templates/create", body);
+    const res = await app.request("/v1/study-templates/create", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "content must be a JSON-encoded string" });
+  });
+
+  it("/v1/drawing-templates/save FormData-encodes via templates.saveDrawingTemplate", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const spy = vi
+      .spyOn(templates, "saveDrawingTemplate")
+      .mockResolvedValueOnce({ ok: true });
+    const body = JSON.stringify({ tool: "LineToolTrendLine", name: "alpha", content: { color: "#fff" } });
+    const headers = await signRequest("POST", "/v1/drawing-templates/save", body);
+    const res = await app.request("/v1/drawing-templates/save", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "stored-session" }),
+      expect.objectContaining({
+        tool: "LineToolTrendLine",
+        name: "alpha",
+        content: { color: "#fff" },
+      }),
+    );
+    spy.mockRestore();
+  });
+
+  it("/v1/settings/save validates that delta is an object", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const body = JSON.stringify({ delta: "not-an-object" });
+    const headers = await signRequest("POST", "/v1/settings/save", body);
+    const res = await app.request("/v1/settings/save", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "delta object required" });
   });
 });
 
