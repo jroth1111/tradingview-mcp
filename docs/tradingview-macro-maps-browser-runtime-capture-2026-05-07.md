@@ -23,6 +23,7 @@ This pass promotes macro maps from "component-data shell plus decompiled ChartAp
 | Direct macro series probe | Node `WebSocket` to the same public macro-map socket with `chart_create_session`, `resolve_symbol` for `ECONOMICS:USGDP`, and `create_series` interval `12M` | returned `series_loading`, `symbol_resolved`, `timescale_update`, and `series_completed` frames | direct public WebSocket probe |
 | UI indicator switch | clean no-login Chrome CDP clicked `Interest Rate` radio after default `Inflation Rate` load | `Interest Rate` became checked; WebSocket sent one `quote_add_symbols` batch over `ECONOMICS:*INTR` plus many `quote_remove_symbols`; no new REST data endpoint | browser runtime |
 | UI date slider drag | clean no-login Chrome CDP dragged `Select date` slider from latest toward early 2004 while `Interest Rate` was active | page list changed to historical `*INTR` observations; loaded `multi-group-series-snapshoter` bundle and sent chart sessions with `Overlay@tv-basicstudies` studies over economic symbols | browser runtime |
+| UI country group switch | clean no-login Chrome CDP opened the `G20` menu and selected `World` | menu exposed group counts; visible list changed from G20 countries to World ranking; no new TradingView WebSocket data frames after selection | browser runtime |
 
 Counterexample shown: if macro maps were treated as unavailable because `component-data-only=1` returned null active data for a guest, this capture disproves that. The browser still opened chart data and received populated `ECONOMICS:*IRYY` quote frames with no logged-in session.
 
@@ -171,6 +172,36 @@ Post-drag network/runtime behavior:
 
 This closes the UI-specific historical slider sequencing gap: the slider uses a multi-group chart-series snapshoter path, not the quote-only latest snapshot path.
 
+### Country Group Switch
+
+Clicking the `G20` group button opened a menu with `role="menu"` and `role="menuitemcheckbox"` entries:
+
+| Group | Count |
+| --- | ---: |
+| `G20` | 19 |
+| `World` | 186 |
+| `North America` | 10 |
+| `Europe` | 46 |
+| `Middle East / Africa` | 70 |
+| `Mexico and South America` | 23 |
+| `Asia / Pacific` | 37 |
+
+Selecting `World` changed the visible group button from `G20` to `World` and replaced the visible list. The first visible G20 `IRYY` country codes were:
+
+`AR`, `TR`, `RU`, `AU`, `MX`, `BR`, `IN`, `GB`, `US`, `ZA`, `DE`, `IT`, `KR`, `ID`, `CA`, `FR`, `SA`, `JP`, `CN`.
+
+The first visible World `IRYY` country codes after selection were:
+
+`VE`, `SS`, `SD`, `KP`, `IR`, `AR`, `TR`, `MM`, `MW`, `HT`, `LB`, `NG`, `BO`, `EG`, `CU`, `AO`, `LY`, `SY`, `KG`, `PK`, `BI`, `SR`, `KZ`, `SL`, `LA`, `RO`, `ET`, `ER`, `ST`, `BD`, `UA`, `RW`, `MN`, `PH`, `BG`, `UZ`, `ZM`, `XK`, `GM`, `AF`.
+
+Post-selection behavior:
+
+- no new TradingView WebSocket data frames were emitted after selecting `World`
+- no scanner or macro REST request was emitted
+- the only observed fetches were country flag SVGs under `s3-symbol-logo.tradingview.com/country/*.svg`
+
+This closes the public country-group/list behavior gap for first-pass modeling. Country groups are UI filters over the already populated economic-symbol set for the active indicator, not separate data endpoints in the observed no-login latest-value path.
+
 ## Classification
 
 | Observation | Classification | Handling |
@@ -181,6 +212,7 @@ This closes the UI-specific historical slider sequencing gap: the slider uses a 
 | Direct no-cookie probe returned `timescale_update` and `series_completed` for `ECONOMICS:USGDP` | unauthenticated-achievable for historical economic series | Model historical slider snapshots through chart `resolve_symbol`/`create_series` flow |
 | UI Interest Rate switch emitted `quote_add_symbols` for `ECONOMICS:*INTR` and many `quote_remove_symbols`; page values changed to `*INTR` symbols | unauthenticated-achievable UI indicator switch | Model filter/latest indicator switching as quote session symbol-family replacement |
 | UI date slider loaded `multi-group-series-snapshoter` and emitted chart sessions with `Overlay@tv-basicstudies-164!` for many `ECONOMICS:*INTR` symbols | unauthenticated-achievable historical UI slider | Model historical map snapshots as batched chart/overlay studies, not a REST endpoint |
+| UI country group menu exposed group counts and selecting `World` changed the visible list with no new data WebSocket frames | local UI filtering over active macro quote set | Model country groups as filters/list projections; fetch flag assets separately if needed |
 | Some `ECONOMICS:*IRYY` symbols returned `no_such_symbol` | partial availability / symbol coverage | Keep per-country availability/errors in schema rather than failing whole map |
 | Public pushstream opened but stayed idle | observed-open-idle | Needs trigger or ignore for macro-map data modeling |
 
@@ -192,6 +224,7 @@ Current Worker chart-data primitives can likely support macro maps, but there is
 
 - indicator id, defaulting to `IRYY` for the observed first-load run
 - country-code list
+- country group definitions and counts: G20 19, World 186, North America 10, Europe 46, Middle East / Africa 70, Mexico and South America 23, Asia / Pacific 37
 - economic symbol construction `ECONOMICS:<country><indicator>`
 - quote session field set for availability/latest values
 - partial per-symbol `ok` vs `no_such_symbol` results
@@ -201,9 +234,8 @@ Current Worker chart-data primitives can likely support macro maps, but there is
 
 ## Remaining Macro Maps Gaps
 
-- Capture country group switch behavior and exact country-code list changes.
 - Decide Worker design: first-class `/v1/macro-maps` composed product route vs lower-level economic quote/series helpers.
 
 ## Completion Decision
 
-Macro maps is materially upgraded: the default no-login browser path now has populated chart-data WebSocket evidence, direct public probes cover non-default economic indicator quote snapshots, direct public historical economic series path is proven, UI indicator switch behavior is captured, and UI historical slider sequencing is captured. The broader full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth/entitlement, widget controlled interactions, mobile/desktop traffic, and macro-map country-group/list interactions remain open.
+Macro maps is materially upgraded: the default no-login browser path now has populated chart-data WebSocket evidence, direct public probes cover non-default economic indicator quote snapshots, direct public historical economic series path is proven, UI indicator switch behavior is captured, UI historical slider sequencing is captured, and UI country group/list behavior is captured. The broader full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth/entitlement, widget controlled interactions, mobile/desktop traffic, and Worker design decisions remain open.
