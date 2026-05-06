@@ -1,0 +1,20 @@
+# Parent directory files to ignore
+cloudflare-tw-data/
+openapi.yaml
+setup.sh
+.claude/
+.fundamentals_responses.json
+.scanner_requests.json
+.tradingview_cookies.json
+.tmp-chart-test.mjs
+.www.tradingview.com.har
+.playwright-mcp/
+
+# Node modules (both parent and project)
+node_modules/
+tradingview-mcp/node_modules/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key

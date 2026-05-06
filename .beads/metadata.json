@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "tradingview",
+  "project_id": "c774ec3d-24a6-4225-bea0-14bb5858f45f"
+}
