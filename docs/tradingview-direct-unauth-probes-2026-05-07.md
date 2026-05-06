@@ -89,3 +89,5 @@ Keep as `auth-status-unknown`:
 5. Portfolio and paper trading runtime calls.
 6. Browser replay/deep-backtesting WebSocket frames and authenticated frame payload shapes.
 7. Direct unauth/auth pair probes for Pine translate/eval with safe built-in scripts.
+
+Follow-up: `docs/tradingview-pine-calendar-direct-probes-2026-05-07.md` now proves no-cookie Pine versions, translate, and minimal non-secret `eval_pine_ex`; `get_script_info` remains header/auth-gated for probed shapes.

@@ -31,6 +31,7 @@ Counterexample shown: guessed scanner payloads for earnings/IPO/related-symbols 
 | Built-in/public Pine versions | `GET` | `pine-facade.tradingview.com/pine-facade/versions/<id>/last` | HTTP 200 list with `created`, `version` | unauthenticated-achievable |
 | Built-in/public Pine translate | `GET` | `pine-facade.tradingview.com/pine-facade/translate/<id>/last` | HTTP 200 `success` result for probed scripts | unauthenticated-achievable |
 | Pine script info | `GET` | `pine-facade.tradingview.com/pine-facade/get_script_info/?pine_id=<id>` | HTTP 401 `header 'X-Userid' is not specified` | authenticated-or-header-required |
+| Minimal Pine eval | `POST` | `pine-facade.tradingview.com/pine-facade/eval_pine_ex/` | HTTP 200 `success:true`; response keys `success`, `result.rootValues` | unauthenticated-achievable |
 
 ## Classification Delta
 
@@ -42,17 +43,18 @@ Move these from `auth-status-unknown` or cookie-observed scanner leads to `unaut
 - Bond details / related bonds scanner.
 - Pine versions for public/built-in scripts.
 - Pine translate for public/built-in scripts.
+- Minimal non-secret Pine `eval_pine_ex`.
 
 Keep open:
 
 - Pine `get_script_info`, because no-cookie probes returned a concrete 401 header/session requirement.
-- Pine `eval_pine_ex`, because a safe direct compile/eval probe was not run in this pass.
 - Pine Screener `/pine_scanner_http/scan`, because passive page load still does not trigger it.
 
 ## Failure Classification
 
 - Harness/invocation: guessed scanner bodies returned 400 for earnings, IPO, and related-symbols. Exact HAR body replay without cookies returned 200, so the earlier failures are not source/auth evidence.
 - Auth/header gate: Pine `get_script_info` returned HTTP 401 with missing `X-Userid`.
+- Positive public eval: `eval_pine_ex` accepted a minimal non-secret Pine v5 indicator shape with form keys `username`, `source`, and `inputs`, returning `success:true`.
 - No network, DNS, rate-limit, or upstream failures occurred in the corrected probe set.
 
 ## Worker Gap
@@ -66,7 +68,6 @@ These public scanner/Pine read surfaces are implementation candidates, but they 
 
 ## Remaining Safe Probes
 
-1. Safe minimal `eval_pine_ex` compile/eval with a non-secret Pine snippet and redacted response-key sketch.
-2. Pine Screener interaction or bundle request-builder extraction for `/pine_scanner_http/scan`.
-3. Response schema sketches for IPO calendar, markets earnings, related-symbols, and bond details.
-4. Authenticated pair probe for `get_script_info` to determine whether it needs cookies, `X-Userid`, or both.
+1. Pine Screener interaction or bundle request-builder extraction for `/pine_scanner_http/scan`.
+2. Response schema sketches for IPO calendar, markets earnings, related-symbols, and bond details.
+3. Authenticated pair probe for `get_script_info` to determine whether it needs cookies, `X-Userid`, or both.
