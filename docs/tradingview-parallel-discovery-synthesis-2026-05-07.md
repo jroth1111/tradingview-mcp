@@ -147,7 +147,7 @@ Major absent or partial families:
 - Options, portfolio, paper trading, broker panel.
 - Pine facade beyond search/meta/private/study, plus Pine Screener.
 - Product-specific screeners, screener facade/storage, heatmaps beyond generic scanner.
-- Economic events, IPO calendar, macro maps, yield curves, seasonals, forward curves. Seasonals and forward curves have browser-runtime evidence; both the seasonals study payload schema and forward-curve scanner schema are captured, though interaction variants remain open.
+- Economic events, IPO calendar, macro maps, yield curves, seasonals, forward curves. Seasonals and forward curves have browser-runtime evidence; both the seasonals study payload schema and forward-curve scanner schema are captured, and seasonals Table view is a local rendering mode over decoded study data, though other interaction variants remain open.
 - News mediator flow, news alerts, pushstream, widgets/embeds.
 - Widget-specific Worker modeling remains absent; existing chart/scanner/news/calendar primitives may cover parts of the runtime, but the iframe/postMessage/Widget Sheriff surface is not represented.
 
@@ -163,7 +163,7 @@ The next wave should use either more available agent slots or serial local captu
 
 1. Authenticated browser mutations: alert create/edit/delete, watchlist CRUD, layout save/load/delete, drawing add/delete/favorite. These need explicit rollback plans before mutation.
 2. Authenticated read-only browser capture: portfolio, paper trading account state, broker/paper panel, saved charts, chart-storage non-empty layout payloads.
-3. Public browser runtime: Pine Screener interaction, macro map filter-only indicator/country/slider UI follow-ups, seasonals table/year-range follow-ups, forward-curve root/interaction variants, and widget interaction follow-ups for Advanced Chart socket-frame postMessage deltas, optional timeline pagination/filtering, and interaction-driven widget scanner deltas.
+3. Public browser runtime: Pine Screener interaction, macro map filter-only indicator/country/slider UI follow-ups, seasonals year-range and Average/Percent follow-ups, forward-curve root/interaction variants, and widget interaction follow-ups for Advanced Chart socket-frame postMessage deltas, optional timeline pagination/filtering, and interaction-driven widget scanner deltas.
 4. Bundle decompilation in temp-only workspace: `calendar_page`, `macro_maps_page`, `yield_curves_page`, `pine_screener`, `new_standalone_screener`, and deeper options chunks.
 5. WebSocket UI flows: replay, deep backtesting, pushstream triggers, charts-polygon intended trigger.
 6. Paired auth probes: same request shape with and without cookies for every read endpoint promoted from HAR evidence.

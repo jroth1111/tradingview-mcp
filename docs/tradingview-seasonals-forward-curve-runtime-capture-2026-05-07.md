@@ -85,6 +85,21 @@ Decoded JSON top-level keys:
 
 This closes the first-pass decoded seasonals response-schema gap. Remaining seasonals work is interaction coverage: year-range changes, table view, and broader symbol classes.
 
+## Seasonals Table View Interaction
+
+Clean no-login browser interaction on `https://www.tradingview.com/symbols/NASDAQ-AAPL/seasonals/`:
+
+- initial controls: `Chart view` radio checked `true`, `Table view` radio checked `false`
+- clicking `Table view` switched `Table view` radio to checked `true` and `Chart view` to checked `false`
+- no additional TradingView chart/study WebSocket messages were emitted after the initial seasonals study flow
+- no new scanner or chart-data HTTP API request was needed; only analytics and `data.tradingview.com/ping` appeared after the local toggle
+- rendered table columns: `Date`, January through December, and `Year`
+- rendered rows: 2026 through 2021 plus `Rises and falls`
+- visible table values match the decoded `performance` percentages, e.g. 2026 row `-4.55%`, `1.81%`, `-3.93%`, `6.92%`, `5.96%`, then future-month dashes, and yearly `5.76%`
+- table header also exposed `Average` and `Percent` controls
+
+This confirms Table view is a local rendering mode over the existing decoded study payload, not a separate backend surface in the observed no-login path.
+
 ## Forward Curve Runtime
 
 Clean no-login browser loads:
@@ -161,6 +176,7 @@ This closes the first-pass forward-curve scanner body/schema gap for representat
 | Stock forward-curve route returned 404 | route/product mismatch | Use futures symbols for forward-curve runtime; do not downgrade futures forward curves |
 | Forward-curve scanner POST for `CME_MINI:ES` returned `totalCount=21`; direct `NYMEX:CL` replay returned `totalCount=129` | unauthenticated-achievable scanner schema | Model contract discovery through `scanner.tradingview.com/futures/scan?label-product=futures-forward-curve` |
 | Seasonals `du` compressed study output decoded to zipped JSON with `performance` and `seasonals` keys | unauthenticated-achievable decoded study schema | Model seasonals as chart-study output rather than REST |
+| Seasonals Table view toggle emitted no new TradingView backend requests and rendered decoded performance table locally | local UI rendering over existing data | Do not model Table view as a separate upstream endpoint |
 | CDP script process stayed open after writing the artifact | harness lifecycle bug | Exact Chrome/Node PIDs were terminated and temp profile removed; captured runtime evidence remains valid |
 | Pushstream opened but no channel messages were needed for these views | observed-open-idle | Keep pushstream trigger behavior open elsewhere |
 
@@ -177,7 +193,7 @@ Potential modeling paths:
 
 ## Remaining Gaps
 
-1. Probe seasonals year-range/table-view interactions.
+1. Probe seasonals year-range and `Average` / `Percent` control interactions.
 2. Probe additional forward-curve roots and interaction variants.
 
 ## Completion Decision
