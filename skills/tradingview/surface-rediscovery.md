@@ -29,7 +29,7 @@ Continue exploring until marginal discoveries flatten. A report that only valida
 
 ## Parallel Discovery Lanes
 
-For a broad rediscovery pass, set up parallel discovery with ten specialized agents or work lanes. Each lane owns one distinct surface family and receives the same evidence pack:
+For a broad rediscovery pass, set up parallel discovery with ten specialized agents or work lanes. Use `reference/parallel-surface-discovery-prompt.md` as the reusable lane prompt. Each lane owns one distinct surface family and receives the same evidence pack:
 
 - The sanitized HAR summary plus the local sensitive HAR path when the worker is allowed to inspect it.
 - Unauthenticated browser/runtime captures, including raw request logs when available.

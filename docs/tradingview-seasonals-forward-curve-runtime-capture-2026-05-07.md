@@ -100,6 +100,19 @@ Clean no-login browser interaction on `https://www.tradingview.com/symbols/NASDA
 
 This confirms Table view is a local rendering mode over the existing decoded study payload, not a separate backend surface in the observed no-login path.
 
+## Seasonals Average / Percent Controls
+
+Follow-up clean no-login browser interaction started from the Table view state and inspected the `Average` and `Percent` controls:
+
+- `Percent` is a `role="combobox"` button.
+- clicking `Percent` opened a local option menu with `Percent` checked.
+- clicking `Average` was accepted by the harness but did not introduce a new TradingView backend surface in the observed run.
+- no additional scanner, chart-data REST, or chart/study WebSocket request was needed for these controls.
+- the only TradingView backend request after the UI interactions was `https://data.tradingview.com/ping`; the remaining post-click requests were analytics.
+- observed WebSocket send names across the whole run were the initial seasonals study lifecycle: `set_data_quality`, `set_auth_token`, `set_locale`, `quote_create_session`, `quote_add_symbols`, `chart_create_session`, `switch_timezone`, `resolve_symbol`, `create_series`, `set_future_tickmarks_mode`, `quote_fast_symbols`, `create_study`, followed by teardown `remove_study`, `remove_series`, and `chart_delete_session`.
+
+This narrows the public controls gap: Table view and the visible Average/Percent display controls are local presentation variants over the decoded study payload. Year-range changes remain the public seasonals interaction likely to alter the `Seasonals@tv-basicstudies` config or trigger a study refresh.
+
 ## Forward Curve Runtime
 
 Clean no-login browser loads:
@@ -177,6 +190,7 @@ This closes the first-pass forward-curve scanner body/schema gap for representat
 | Forward-curve scanner POST for `CME_MINI:ES` returned `totalCount=21`; direct `NYMEX:CL` replay returned `totalCount=129` | unauthenticated-achievable scanner schema | Model contract discovery through `scanner.tradingview.com/futures/scan?label-product=futures-forward-curve` |
 | Seasonals `du` compressed study output decoded to zipped JSON with `performance` and `seasonals` keys | unauthenticated-achievable decoded study schema | Model seasonals as chart-study output rather than REST |
 | Seasonals Table view toggle emitted no new TradingView backend requests and rendered decoded performance table locally | local UI rendering over existing data | Do not model Table view as a separate upstream endpoint |
+| Seasonals Average/Percent controls emitted no new scanner/chart REST or study-refresh WebSocket traffic in the observed no-login Table view run | local UI presentation controls | Do not model these controls as separate upstream endpoints unless future interactions prove a backend delta |
 | CDP script process stayed open after writing the artifact | harness lifecycle bug | Exact Chrome/Node PIDs were terminated and temp profile removed; captured runtime evidence remains valid |
 | Pushstream opened but no channel messages were needed for these views | observed-open-idle | Keep pushstream trigger behavior open elsewhere |
 
@@ -193,9 +207,9 @@ Potential modeling paths:
 
 ## Remaining Gaps
 
-1. Probe seasonals year-range and `Average` / `Percent` control interactions.
+1. Probe seasonals year-range interactions.
 2. Probe additional forward-curve roots and interaction variants.
 
 ## Completion Decision
 
-Seasonals and forward curves are now public browser-runtime surfaces, not merely static leads. Seasonals study output is decoded into a stable first-pass JSON schema, and forward-curve scanner schema is verified for representative `CME_MINI:ES` and `NYMEX:CL` roots. The full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, macro-map remaining UI interactions, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.
+Seasonals and forward curves are now public browser-runtime surfaces, not merely static leads. Seasonals study output is decoded into a stable first-pass JSON schema, Table view plus Average/Percent display controls are local presentation variants, and forward-curve scanner schema is verified for representative `CME_MINI:ES` and `NYMEX:CL` roots. The full TradingView rediscovery objective remains incomplete because authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, macro-map remaining UI interactions, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.

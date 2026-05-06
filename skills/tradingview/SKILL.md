@@ -160,6 +160,7 @@ Schema-level deep dives. Read on demand from a workflow.
 - `reference/alerts.md` — alert object schema (~30 keys), condition types, frequencies, webhook tokens, pushstream delivery.
 - `reference/strategies.md` — property fields, report fields, trade rows, equity arrays, closed-source via `is_auth_to_get`.
 - `reference/templates.md` — study-templates and drawing-templates surfaces, apply-flow client-side semantics.
+- `reference/parallel-surface-discovery-prompt.md` — 10-lane unknown-unknown rediscovery prompt with auth/unauth and retry classification rules.
 
 ## Recon archive
 
