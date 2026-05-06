@@ -18,6 +18,7 @@
 - Product runtime capture: `docs/tradingview-product-runtime-capture-2026-05-07.md`
 - Pine/calendar direct probes: `docs/tradingview-pine-calendar-direct-probes-2026-05-07.md`
 - Shell page bundle mining: `docs/tradingview-shell-page-bundle-mining-2026-05-07.md`
+- Completion audit: `docs/tradingview-rediscovery-completion-audit-2026-05-07.md`
 - Scope not yet covered: authenticated browser network capture, plan-gated UI paths, full WebSocket frame capture, source maps, account-specific watchlists/layouts/alerts, mobile app traffic, and all locale/product pages beyond sampled pages
 
 This is not a completeness claim. The purpose of this pass is to turn the unknown-unknown workflow into durable evidence and identify the next probes required to keep rediscovering surfaces when TradingView changes.
@@ -231,7 +232,8 @@ Repo support:
 8. Shell-page bundle mining pass: temp-only bundle extraction found yield-curves component-data, macro maps shell state, and Pine Screener scan host/method/credential behavior in `docs/tradingview-shell-page-bundle-mining-2026-05-07.md`.
 9. Parallel surface-family pass: six read-only explorers plus local news/community/widget inspection synthesized into `docs/tradingview-parallel-discovery-synthesis-2026-05-07.md`; platform thread limit prevented launching all ten proposed agents at once.
 10. Worker gap implementation planning: group additions by authority boundary: chart/session protocol, screeners/storage, Pine/script, calendar/macro, alerts/notifications, watchlists/layouts, options/portfolio/paper.
-11. Robustness pass: every new upstream integration must preserve error categories `network`, `rate_limit`, `auth`, `upstream`, `bad_request`, and should retry network failures without downgrading capability state.
+11. Completion audit: `docs/tradingview-rediscovery-completion-audit-2026-05-07.md` maps every explicit rediscovery requirement to artifacts and records remaining blockers.
+12. Robustness pass: every new upstream integration must preserve error categories `network`, `rate_limit`, `auth`, `upstream`, `bad_request`, and should retry network failures without downgrading capability state.
 
 ## Runtime Capture Tooling
 
