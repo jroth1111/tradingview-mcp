@@ -19,6 +19,10 @@
       {
         "name": "FETCH_COORDINATOR",
         "class_name": "FetchCoordinator"
+      },
+      {
+        "name": "CHART_SESSION",
+        "class_name": "ChartSession"
       }
     ]
   },
@@ -49,6 +53,10 @@
       "tag": "v2",
       "new_sqlite_classes": ["FetchCoordinator"],
       "deleted_classes": ["StreamHub"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["ChartSession"]
     }
   ]
 }

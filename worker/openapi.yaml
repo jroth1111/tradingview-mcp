@@ -422,3 +422,47 @@ paths:
     get:
       summary: List supported timeframes.
       responses: { "200": { description: Timeframes. } }
+  /v1/pine/compile:
+    post:
+      summary: Compile a Pine script (eval, full, or light) via pine-facade.
+      responses: { "200": { description: Pine compile result. } }
+  /v1/pine/run:
+    post:
+      summary: Compile and run a Pine script as a study against a symbol.
+      responses: { "200": { description: Pine run result with compile + study output. } }
+  /v1/strategy/run:
+    post:
+      summary: Run a TradingView strategy and return report, trades, and equity curve.
+      responses: { "200": { description: Strategy run result. } }
+  /v1/strategy/optimize:
+    post:
+      summary: Sweep strategy parameters in parallel and return per-combo reports plus best.
+      responses: { "200": { description: Strategy optimize result. } }
+  /v1/study/chain:
+    post:
+      summary: Run multiple chained studies (study-on-study) in a single chart session.
+      responses: { "200": { description: Study chain result. } }
+  /v1/study/modify:
+    post:
+      summary: Re-run a study with new inputs (short-lived modify, no DO).
+      responses: { "200": { description: Study modify result. } }
+  /v1/chart-session/create:
+    post:
+      summary: Create a stateful chart session (Durable Object) addressed by sessionToken.
+      responses: { "200": { description: Chart session created. } }
+  /v1/chart-session/study/create:
+    post:
+      summary: Create a study slot inside a stateful chart session.
+      responses: { "200": { description: Study slot created. } }
+  /v1/chart-session/study/modify:
+    post:
+      summary: Modify a study slot's inputs in place (debounced 500ms).
+      responses: { "200": { description: Study modify result. } }
+  /v1/chart-session/replay/step:
+    post:
+      summary: Step a chart session's replay (forward/backward by N bars).
+      responses: { "200": { description: Replay step result. } }
+  /v1/chart-session/close:
+    post:
+      summary: Tear down a chart session and release the upstream WebSocket.
+      responses: { "200": { description: Chart session closed. } }

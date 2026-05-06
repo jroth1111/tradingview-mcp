@@ -92,6 +92,9 @@ import {
   type MetaRecord,
 } from "./cache";
 import { FetchCoordinator } from "./fetch-coordinator";
+import { compilePine, runPine } from "./pine";
+import { runStrategy, optimizeStrategy } from "./strategy";
+import { modifyStudy, runStudyChain } from "./study-chain";
 import { runSelfTests } from "./selftest";
 import { runIntegration } from "./tests/integration";
 import { pruneCache } from "./prune";
@@ -623,6 +626,17 @@ app.get("/", (c) =>
       "/v1/drawing-templates/delete",
       "/v1/settings/load",
       "/v1/settings/save",
+      "/v1/pine/compile",
+      "/v1/pine/run",
+      "/v1/strategy/run",
+      "/v1/strategy/optimize",
+      "/v1/study/chain",
+      "/v1/study/modify",
+      "/v1/chart-session/create",
+      "/v1/chart-session/study/create",
+      "/v1/chart-session/study/modify",
+      "/v1/chart-session/replay/step",
+      "/v1/chart-session/close",
     ],
     note:
       "Provide sessionId from your TradingView browser session and use endpoint=prodata for premium feeds.",
@@ -2024,8 +2038,449 @@ app.post("/v1/settings/save", async (c) => {
   }
 });
 
+// === Pine compile + run (P-Pine / la1) ==============================
+
+app.post("/v1/pine/compile", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      source?: string;
+      pineId?: string;
+      version?: string;
+      mode?: "eval" | "full" | "light";
+      inputs?: Record<string, any>;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.source && !body?.pineId) {
+      return c.json({ error: "source or pineId required" }, 400);
+    }
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await compilePine({
+      source: body.source,
+      pineId: body.pineId,
+      version: body.version,
+      mode: body.mode,
+      inputs: body.inputs,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine compile failed");
+  }
+});
+
+app.post("/v1/pine/run", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      symbol: string;
+      source?: string;
+      pineId?: string;
+      version?: string;
+      inputs?: Record<string, any>;
+      params?: Record<string, any>;
+      timeframe?: string | number;
+      bars?: number;
+      parentSeriesId?: string;
+      endpoint?: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.symbol) return c.json({ error: "symbol required" }, 400);
+    if (!body?.source && !body?.pineId) {
+      return c.json({ error: "source or pineId required" }, 400);
+    }
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await runPine({
+      symbol: body.symbol,
+      source: body.source,
+      pineId: body.pineId,
+      version: body.version,
+      inputs: body.inputs,
+      params: body.params,
+      timeframe: body.timeframe,
+      bars: body.bars,
+      parentSeriesId: body.parentSeriesId,
+      endpoint: body.endpoint as any,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine run failed");
+  }
+});
+
+// === Strategy run + optimize (P8 / g6v) =============================
+
+app.post("/v1/strategy/run", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      symbol: string;
+      studyId?: string;
+      source?: string;
+      properties?: Record<string, any>;
+      inputs?: Record<string, any>;
+      params?: Record<string, any>;
+      timeframe?: string | number;
+      bars?: number;
+      endpoint?: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.symbol) return c.json({ error: "symbol required" }, 400);
+    if (!body?.studyId && !body?.source) {
+      return c.json({ error: "studyId or source required" }, 400);
+    }
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await runStrategy({
+      symbol: body.symbol,
+      studyId: body.studyId,
+      source: body.source,
+      properties: body.properties,
+      inputs: body.inputs,
+      params: body.params,
+      timeframe: body.timeframe,
+      bars: body.bars,
+      endpoint: body.endpoint as any,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "strategy run failed");
+  }
+});
+
+app.post("/v1/strategy/optimize", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      symbol: string;
+      studyId: string;
+      baseInputs?: Record<string, any>;
+      baseParams?: Record<string, any>;
+      properties?: Record<string, any>;
+      sweep: Record<string, any[]>;
+      timeframe?: string | number;
+      bars?: number;
+      endpoint?: string;
+      sessionId?: string;
+      sessionSign?: string;
+      concurrency?: number;
+      metric?: string;
+    };
+    if (!body?.symbol) return c.json({ error: "symbol required" }, 400);
+    if (!body?.studyId) return c.json({ error: "studyId required" }, 400);
+    if (!body?.sweep || typeof body.sweep !== "object") {
+      return c.json({ error: "sweep object required" }, 400);
+    }
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await optimizeStrategy({
+      symbol: body.symbol,
+      studyId: body.studyId,
+      baseInputs: body.baseInputs,
+      baseParams: body.baseParams,
+      properties: body.properties,
+      sweep: body.sweep,
+      timeframe: body.timeframe,
+      bars: body.bars,
+      endpoint: body.endpoint as any,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+      concurrency: body.concurrency,
+      metric: body.metric as any,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "strategy optimize failed");
+  }
+});
+
+// === Study chain + short-lived modify (P7 / xu3) ====================
+
+app.post("/v1/study/chain", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      symbol: string;
+      timeframe?: string | number;
+      bars?: number;
+      studies: Array<{
+        studyId: string;
+        inputs?: Record<string, any>;
+        params?: Record<string, any>;
+        parentSlot?: string;
+        slotName?: string;
+      }>;
+      endpoint?: string;
+      sessionId?: string;
+      sessionSign?: string;
+      timeoutMs?: number;
+    };
+    if (!body?.symbol) return c.json({ error: "symbol required" }, 400);
+    if (!Array.isArray(body?.studies) || body.studies.length === 0) {
+      return c.json({ error: "studies array required" }, 400);
+    }
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await runStudyChain({
+      symbol: body.symbol,
+      timeframe: body.timeframe,
+      bars: body.bars,
+      studies: body.studies,
+      endpoint: body.endpoint as any,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+      timeoutMs: body.timeoutMs,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "study chain failed");
+  }
+});
+
+app.post("/v1/study/modify", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      symbol: string;
+      studyId: string;
+      inputs?: Record<string, any>;
+      params?: Record<string, any>;
+      timeframe?: string | number;
+      bars?: number;
+      parentSeriesId?: string;
+      endpoint?: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.symbol || !body?.studyId) {
+      return c.json({ error: "symbol and studyId required" }, 400);
+    }
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await modifyStudy({
+      symbol: body.symbol,
+      studyId: body.studyId,
+      inputs: body.inputs,
+      params: body.params,
+      timeframe: body.timeframe,
+      bars: body.bars,
+      parentSeriesId: body.parentSeriesId,
+      endpoint: body.endpoint as any,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "study modify failed");
+  }
+});
+
+// === Stateful chart-session DO (P9 / 2v6) ===========================
+// All chart-session sub-routes require a sessionToken in the body. The
+// token names a Durable Object instance; clients should pass the same
+// token across /create -> /study/* -> /close to address the same DO.
+
+const requireSessionToken = (body: any): string | Response => {
+  if (!body || typeof body.sessionToken !== "string" || !body.sessionToken) {
+    return Response.json({ error: "sessionToken (string) required" }, { status: 400 });
+  }
+  return body.sessionToken;
+};
+
+const forwardToChartSession = async (
+  c: any,
+  subPath: string,
+  body: any,
+  sessionToken: string,
+): Promise<Response> => {
+  const ns = (c.env as any).CHART_SESSION as {
+    idFromName: (name: string) => any;
+    get: (id: any) => { fetch: (url: string, init: RequestInit) => Promise<Response> };
+  };
+  const id = ns.idFromName(sessionToken);
+  const stub = ns.get(id);
+  const init: RequestInit = {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  };
+  return stub.fetch(`https://chart-session.internal${subPath}`, init);
+};
+
+app.post("/v1/chart-session/create", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      sessionToken?: string;
+      symbol: string;
+      timeframe?: string | number;
+      bars?: number;
+      endpoint?: string;
+      sessionId?: string;
+      sessionSign?: string;
+      timeoutMs?: number;
+    };
+    const tokenOrErr = requireSessionToken(body);
+    if (typeof tokenOrErr !== "string") return tokenOrErr;
+    if (!body?.symbol) return c.json({ error: "symbol required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const forwarded = await forwardToChartSession(c, "/create", {
+      symbol: body.symbol,
+      timeframe: body.timeframe,
+      bars: body.bars,
+      endpoint: body.endpoint,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+      timeoutMs: body.timeoutMs,
+    }, tokenOrErr);
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return forwarded;
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "chart-session create failed");
+  }
+});
+
+app.post("/v1/chart-session/study/create", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      sessionToken?: string;
+      studyId: string;
+      inputs?: Record<string, any>;
+      params?: Record<string, any>;
+      parentSlot?: string;
+      slotName?: string;
+      timeoutMs?: number;
+    };
+    const tokenOrErr = requireSessionToken(body);
+    if (typeof tokenOrErr !== "string") return tokenOrErr;
+    if (!body?.studyId) return c.json({ error: "studyId required" }, 400);
+    return await forwardToChartSession(c, "/study/create", {
+      studyId: body.studyId,
+      inputs: body.inputs,
+      params: body.params,
+      parentSlot: body.parentSlot,
+      slotName: body.slotName,
+      timeoutMs: body.timeoutMs,
+    }, tokenOrErr);
+  } catch (err: any) {
+    return routeError(c, err, "chart-session study create failed");
+  }
+});
+
+app.post("/v1/chart-session/study/modify", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      sessionToken?: string;
+      slotName: string;
+      inputs: Record<string, any>;
+      params?: Record<string, any>;
+      timeoutMs?: number;
+    };
+    const tokenOrErr = requireSessionToken(body);
+    if (typeof tokenOrErr !== "string") return tokenOrErr;
+    if (!body?.slotName) return c.json({ error: "slotName required" }, 400);
+    if (!body?.inputs || typeof body.inputs !== "object") {
+      return c.json({ error: "inputs object required" }, 400);
+    }
+    return await forwardToChartSession(c, "/study/modify", {
+      slotName: body.slotName,
+      inputs: body.inputs,
+      params: body.params,
+      timeoutMs: body.timeoutMs,
+    }, tokenOrErr);
+  } catch (err: any) {
+    return routeError(c, err, "chart-session study modify failed");
+  }
+});
+
+app.post("/v1/chart-session/replay/step", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      sessionToken?: string;
+      direction: "forward" | "backward";
+      bars?: number;
+    };
+    const tokenOrErr = requireSessionToken(body);
+    if (typeof tokenOrErr !== "string") return tokenOrErr;
+    if (body?.direction !== "forward" && body?.direction !== "backward") {
+      return c.json({ error: "direction must be 'forward' or 'backward'" }, 400);
+    }
+    return await forwardToChartSession(c, "/replay/step", {
+      direction: body.direction,
+      bars: body.bars,
+    }, tokenOrErr);
+  } catch (err: any) {
+    return routeError(c, err, "chart-session replay step failed");
+  }
+});
+
+app.post("/v1/chart-session/close", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as { sessionToken?: string };
+    const tokenOrErr = requireSessionToken(body);
+    if (typeof tokenOrErr !== "string") return tokenOrErr;
+    return await forwardToChartSession(c, "/close", {}, tokenOrErr);
+  } catch (err: any) {
+    return routeError(c, err, "chart-session close failed");
+  }
+});
+
 export default app;
 export { FetchCoordinator };
+export { ChartSession } from "./chart-session-do";
 
 // Scheduled snapshot (cron)
 export const scheduled: ExportedHandlerScheduledHandler<CloudflareBindings> = async (

@@ -7,6 +7,9 @@ import * as alertsModule from "./alerts";
 import * as templates from "./templates";
 import * as cacheModule from "./cache";
 import * as pruneModule from "./prune";
+import * as pineModule from "./pine";
+import * as strategyModule from "./strategy";
+import * as studyChainModule from "./study-chain";
 
 const encoder = new TextEncoder();
 
@@ -532,6 +535,243 @@ describe("New surfaces (P3-P6, P10)", () => {
     const res = await app.request("/v1/settings/save", { method: "POST", body, headers }, env);
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "delta object required" });
+  });
+});
+
+describe("Pine + strategy + study-chain + chart-session (la1, g6v, xu3, 2v6)", () => {
+  it("/v1/pine/compile rejects when neither source nor pineId is provided", async () => {
+    const env = makeEnv();
+    const body = JSON.stringify({});
+    const headers = await signRequest("POST", "/v1/pine/compile", body);
+    const res = await app.request("/v1/pine/compile", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "source or pineId required" });
+  });
+
+  it("/v1/pine/compile dispatches to compilePine helper with stored session", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const spy = vi.spyOn(pineModule, "compilePine").mockResolvedValueOnce({
+      success: true,
+      mode: "light",
+      pineId: "PUB;abc",
+      pineVersion: "v5",
+      errors: [],
+      warnings: [],
+    });
+    const body = JSON.stringify({ pineId: "PUB;abc" });
+    const headers = await signRequest("POST", "/v1/pine/compile", body);
+    const res = await app.request("/v1/pine/compile", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ pineId: "PUB;abc", sessionId: "stored-session" }),
+    );
+    spy.mockRestore();
+  });
+
+  it("/v1/pine/run requires a symbol", async () => {
+    const env = makeEnv();
+    const body = JSON.stringify({ pineId: "PUB;abc" });
+    const headers = await signRequest("POST", "/v1/pine/run", body);
+    const res = await app.request("/v1/pine/run", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "symbol required" });
+  });
+
+  it("/v1/strategy/run rejects when neither studyId nor source is provided", async () => {
+    const env = makeEnv();
+    const body = JSON.stringify({ symbol: "AAPL" });
+    const headers = await signRequest("POST", "/v1/strategy/run", body);
+    const res = await app.request("/v1/strategy/run", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "studyId or source required" });
+  });
+
+  it("/v1/strategy/run dispatches to runStrategy with merged properties", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const spy = vi.spyOn(strategyModule, "runStrategy").mockResolvedValueOnce({
+      studyResult: {
+        symbol: "AAPL",
+        timeframe: "60",
+        bars: 300,
+        studyId: "PUB;abc",
+        studyVersion: "v5",
+        plots: [],
+      } as any,
+      report: { netProfit: 1234 },
+      trades: [],
+      equity: [],
+    });
+    const body = JSON.stringify({
+      symbol: "AAPL",
+      studyId: "PUB;abc",
+      properties: { initial_capital: 10000 },
+    });
+    const headers = await signRequest("POST", "/v1/strategy/run", body);
+    const res = await app.request("/v1/strategy/run", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        symbol: "AAPL",
+        studyId: "PUB;abc",
+        properties: { initial_capital: 10000 },
+        sessionId: "stored-session",
+      }),
+    );
+    spy.mockRestore();
+  });
+
+  it("/v1/strategy/optimize requires a sweep object", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const body = JSON.stringify({ symbol: "AAPL", studyId: "PUB;abc" });
+    const headers = await signRequest("POST", "/v1/strategy/optimize", body);
+    const res = await app.request("/v1/strategy/optimize", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "sweep object required" });
+  });
+
+  it("/v1/study/chain forwards to runStudyChain", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const spy = vi.spyOn(studyChainModule, "runStudyChain").mockResolvedValueOnce({
+      symbol: "AAPL",
+      timeframe: "60",
+      bars: 300,
+      studies: [
+        {
+          slotName: "st1",
+          studyId: "STD;EMA",
+          wireId: "STD;EMA@tv-basicstudies-241!",
+          studyVersion: "241",
+          parentSlot: "sds_1",
+          plots: [],
+        },
+      ],
+    });
+    const body = JSON.stringify({
+      symbol: "AAPL",
+      studies: [{ studyId: "STD;EMA", params: { Length: 21 } }],
+    });
+    const headers = await signRequest("POST", "/v1/study/chain", body);
+    const res = await app.request("/v1/study/chain", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        symbol: "AAPL",
+        sessionId: "stored-session",
+      }),
+    );
+    spy.mockRestore();
+  });
+
+  it("/v1/study/chain rejects empty studies array", async () => {
+    const env = makeEnv();
+    const body = JSON.stringify({ symbol: "AAPL", studies: [] });
+    const headers = await signRequest("POST", "/v1/study/chain", body);
+    const res = await app.request("/v1/study/chain", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "studies array required" });
+  });
+
+  it("/v1/study/modify forwards to modifyStudy with stored session", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const spy = vi.spyOn(studyChainModule, "modifyStudy").mockResolvedValueOnce({
+      symbol: "AAPL",
+      timeframe: "60",
+      bars: 300,
+      studyId: "STD;EMA",
+      studyVersion: "241",
+      plots: [],
+    } as any);
+    const body = JSON.stringify({
+      symbol: "AAPL",
+      studyId: "STD;EMA",
+      params: { Length: 50 },
+    });
+    const headers = await signRequest("POST", "/v1/study/modify", body);
+    const res = await app.request("/v1/study/modify", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        symbol: "AAPL",
+        studyId: "STD;EMA",
+        sessionId: "stored-session",
+      }),
+    );
+    spy.mockRestore();
+  });
+
+  it("/v1/chart-session/create requires a sessionToken", async () => {
+    const env = makeEnv();
+    const body = JSON.stringify({ symbol: "AAPL" });
+    const headers = await signRequest("POST", "/v1/chart-session/create", body);
+    const res = await app.request("/v1/chart-session/create", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "sessionToken (string) required" });
+  });
+
+  it("/v1/chart-session/create routes to the DO via idFromName(sessionToken)", async () => {
+    const fetchSpy = vi.fn(async () => Response.json({ ok: true, chartSession: "cs_x", parentSeriesId: "sds_1" }));
+    const env = {
+      HMAC_CLIENT_ID: "client",
+      HMAC_SECRET: "secret",
+      CACHE_META: makeKV(),
+      CACHE_DATA: {} as R2Bucket,
+      FETCH_COORDINATOR: {
+        idFromName: (name: string) => name,
+        get: () => ({ fetch: async () => Response.json({}) }),
+      },
+      CHART_SESSION: {
+        idFromName: (name: string) => ({ name }),
+        get: () => ({ fetch: fetchSpy }),
+      },
+    } as unknown as CloudflareBindings;
+    const body = JSON.stringify({ sessionToken: "tok-123", symbol: "AAPL" });
+    const headers = await signRequest("POST", "/v1/chart-session/create", body);
+    const res = await app.request("/v1/chart-session/create", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(String(url)).toContain("/create");
+    expect((init as any).method).toBe("POST");
+    const forwardedBody = JSON.parse((init as any).body);
+    expect(forwardedBody.symbol).toBe("AAPL");
+  });
+
+  it("/v1/chart-session/study/modify forwards slotName + inputs to the DO", async () => {
+    const fetchSpy = vi.fn(async () =>
+      Response.json({ ok: true, slotName: "st1", plots: [] }),
+    );
+    const env = {
+      HMAC_CLIENT_ID: "client",
+      HMAC_SECRET: "secret",
+      CACHE_META: makeKV(),
+      CACHE_DATA: {} as R2Bucket,
+      FETCH_COORDINATOR: {
+        idFromName: (name: string) => name,
+        get: () => ({ fetch: async () => Response.json({}) }),
+      },
+      CHART_SESSION: {
+        idFromName: (name: string) => ({ name }),
+        get: () => ({ fetch: fetchSpy }),
+      },
+    } as unknown as CloudflareBindings;
+    const body = JSON.stringify({
+      sessionToken: "tok-123",
+      slotName: "st1",
+      inputs: { in_0: 21 },
+    });
+    const headers = await signRequest("POST", "/v1/chart-session/study/modify", body);
+    const res = await app.request("/v1/chart-session/study/modify", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(String(url)).toContain("/study/modify");
+    const forwardedBody = JSON.parse((init as any).body);
+    expect(forwardedBody.slotName).toBe("st1");
+    expect(forwardedBody.inputs).toEqual({ in_0: 21 });
   });
 });
 
