@@ -43,7 +43,12 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["FetchCoordinator"]
+      "new_sqlite_classes": []
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["FetchCoordinator"],
+      "deleted_classes": ["StreamHub"]
     }
   ]
 }

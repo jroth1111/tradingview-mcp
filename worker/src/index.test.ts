@@ -100,6 +100,7 @@ describe("Worker auth boundary", () => {
     const env = makeEnv();
     await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
     const tokenSpy = vi.spyOn(tv, "getAuthToken").mockResolvedValueOnce("authorized-token");
+    const candleSpy = vi.spyOn(tv, "getCandles");
     const profileSpy = vi.spyOn(tv, "getUserProfile");
     const headers = await signRequest("GET", "/admin/session/status", "");
 
@@ -117,8 +118,33 @@ describe("Worker auth boundary", () => {
       },
     });
     expect(tokenSpy).toHaveBeenCalledWith("stored-session", "stored-sign");
+    expect(candleSpy).not.toHaveBeenCalled();
     expect(profileSpy).not.toHaveBeenCalled();
     tokenSpy.mockRestore();
+    candleSpy.mockRestore();
+    profileSpy.mockRestore();
+  });
+
+  it("falls back to the market-data path for admin session status", async () => {
+    const env = makeEnv();
+    await setStoredSession(env.CACHE_META, "stored-session", "stored-sign");
+    const tokenSpy = vi.spyOn(tv, "getAuthToken").mockResolvedValueOnce("unauthorized_user_token");
+    const candleSpy = vi.spyOn(tv, "getCandles").mockResolvedValueOnce([
+      { timestamp: 1, open: 1, high: 1, low: 1, close: 1, volume: 1 },
+    ]);
+    const profileSpy = vi.spyOn(tv, "getUserProfile");
+    const headers = await signRequest("GET", "/admin/session/status", "");
+
+    const res = await app.request("/admin/session/status", { method: "GET", headers }, env);
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean };
+    expect(json.ok).toBe(true);
+    expect(tokenSpy).toHaveBeenCalledWith("stored-session", "stored-sign");
+    expect(candleSpy).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "stored-session" }));
+    expect(profileSpy).not.toHaveBeenCalled();
+    tokenSpy.mockRestore();
+    candleSpy.mockRestore();
     profileSpy.mockRestore();
   });
 });

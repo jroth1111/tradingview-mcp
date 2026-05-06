@@ -147,7 +147,16 @@ app.get("/admin/session/status", async (c) => {
   if (isBlocked(stored)) return c.json({ ok: false, reason: "blocked", stored });
   try {
     const token = await getAuthToken(stored.sessionId, stored.sessionSign);
-    if (token === "unauthorized_user_token") throw new Error("Wrong or expired sessionid/sessionid_sign");
+    if (token === "unauthorized_user_token") {
+      const candles = await getCandles({
+        symbol: "ASX:MQG",
+        timeframe: "1D",
+        amount: 1,
+        sessionId: stored.sessionId,
+        timeoutMs: 8000,
+      });
+      if (candles.length === 0) throw new Error("Wrong or expired sessionid/sessionid_sign");
+    }
     return c.json({ ok: true, stored });
   } catch (err: any) {
     await markAuthFailure(c.env.CACHE_META);
