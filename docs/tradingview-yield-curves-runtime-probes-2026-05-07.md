@@ -53,6 +53,28 @@ All six requested non-US symbols returned status `ok` with public fields:
 
 This promotes non-US current yield quotes to unauthenticated-achievable through `available_countries[].terms` plus normal chart/quote WebSocket protocol. It does not yet prove the exact UI click sequence or persisted authenticated settings behavior.
 
+## Direct Non-US Historical Series Probe
+
+Public no-cookie chart WebSocket probe:
+
+- URL shape: `wss://data.tradingview.com/socket.io/websocket?from=yield-curves/&date=...&type=chart&auth=sessionid`
+- auth token frame: `set_auth_token` with `unauthorized_user_token`
+- chart frames per symbol: `chart_create_session`, `resolve_symbol`, and `create_series`
+- quote sidecar frames per symbol: `quote_create_session`, `quote_set_fields`, and `quote_add_symbols`
+- requested symbols: `TVC:AU10Y`, `TVC:DE10Y`, `TVC:JP10Y`
+- interval/count: `1D`, 10 bars
+- decisive returned frame names: `series_loading`, `qsd`, `symbol_resolved`, `timescale_update`, `series_completed`, `quote_completed`
+
+All three requested non-US historical series returned `timescale_update` with 10 daily OHLC bars:
+
+| Symbol | Country | Series proof |
+| --- | --- | --- |
+| `TVC:AU10Y` | `AU` | `symbol_resolved` for `AU10Y`; `timescale_update.s1.s` contained 10 bars; node `lax1-charts-free-3-series-*` |
+| `TVC:DE10Y` | `DE` | `symbol_resolved` for `DE10Y`; `timescale_update.s1.s` contained 10 bars; node `lax1-charts-free-3-series-*` |
+| `TVC:JP10Y` | `JP` | `symbol_resolved` for `JP10Y`; `timescale_update.s1.s` contained 10 bars; node `lax1-charts-free-4-series-*` |
+
+This promotes date-specific non-US yield history to unauthenticated-achievable through the normal chart `resolve_symbol` / `create_series` path. It does not prove authenticated UI persistence, but it proves the underlying historical data path needed by the yield-curve date rows is public for representative non-US symbols.
+
 ## Browser Runtime Probe
 
 A clean no-login browser load of `https://www.tradingview.com/yield-curves/` produced:
@@ -113,6 +135,7 @@ Bundle-derived runtime shape from the page chunks:
 | `#country=de` returned US data | client fragment ignored server-side | Use browser interaction or decompiled state writer |
 | No WebSocket on initial load | normal first-load architecture | Component-data endpoint is sufficient for default table |
 | Non-US AU/DE/JP quote symbols returned `qsd` `ok` over `data.tradingview.com` with `unauthorized_user_token` | unauthenticated-achievable data path | Model non-US current yields from `available_countries[].terms` plus quote/chart WebSocket protocol |
+| Non-US AU/DE/JP 10Y symbols returned 10 daily bars via `resolve_symbol` / `create_series` | unauthenticated-achievable historical path | Model date-specific non-US yield history through chart WebSocket protocol |
 | Add Country guest click opened a promo registration dialog and did not open country selection | authenticated/registration-gated UI action | Keep authenticated Add Country capture open; model public non-US data separately from guest UI availability |
 | Clone is wrapped in `runOrSigninWithFeature` | auth/feature gate likely applies to guest UI actions | Keep authenticated clone/persistence behavior open |
 | Guest settings menu opened locally and exposed tenor/linear/heatmap controls without yield localStorage writes | unauthenticated local UI state | Persisted settings still need authenticated capture |
@@ -125,17 +148,16 @@ Yield curves can begin as a public read endpoint for the default component-data 
 
 - country metadata and term symbol registry from `available_countries`
 - current yield quote snapshots for non-default countries via `data.tradingview.com` quote WebSocket
+- historical/date-specific non-US snapshots through chart `resolve_symbol` / `create_series`
 - settings fields and date row behavior
 - authenticated `Add`, `Clone`, and `Delete` semantics, including persistence behavior after the guest Add gate
-- historical/date-specific non-US snapshots through the bundle-derived chart snapshoter path
 
 ## Remaining Yield-Curves Gaps
 
 1. Capture authenticated Add Country country-picker behavior and resulting chart/quote frames.
 2. Capture authenticated settings persistence for `YieldCurves` / deprecated `yield-curves`.
 3. Capture authenticated Clone/Delete persistence semantics.
-4. Probe date-specific non-US snapshots through the bundle-derived chart snapshoter path, not only current quotes.
 
 ## Completion Decision
 
-Yield curves are stronger than before: default public component-data and initial browser rendering are verified; naive non-US parameter guesses are classified as route/parameter misses; non-US current yield symbols for AU/DE/JP are verified public through quote WebSocket; bundle mining identifies the Add Country, settings, clone, delete, and authenticated-storage paths; and guest Add/Settings UI behavior is classified. The full TradingView rediscovery objective remains incomplete because authenticated yield Add/settings/clone/delete persistence, date-specific non-US snapshots, broader authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.
+Yield curves are stronger than before: default public component-data and initial browser rendering are verified; naive non-US parameter guesses are classified as route/parameter misses; non-US current yield symbols for AU/DE/JP are verified public through quote WebSocket; non-US AU/DE/JP 10Y daily history is verified public through chart `resolve_symbol` / `create_series`; bundle mining identifies the Add Country, settings, clone, delete, and authenticated-storage paths; and guest Add/Settings UI behavior is classified. The full TradingView rediscovery objective remains incomplete because authenticated yield Add/settings/clone/delete persistence, broader authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.

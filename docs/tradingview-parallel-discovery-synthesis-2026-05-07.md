@@ -127,7 +127,7 @@ No explorer edited files. HAR-derived evidence below is sanitized: host/path/met
 
 - Economic events are a public candidate for Worker support.
 - Extra scanner shapes exist for IPO calendar, market earnings, bond details, and related-symbols.
-- Macro maps/yield curves pages and bundles are public. Macro maps runtime is now proven as a public chart-data composition for current quote snapshots and GDP historical series. Yield curves default US component-data is public, non-US AU/DE/JP current yield quotes are public through `data.tradingview.com` quote WebSocket using the `available_countries` term registry, guest Add Country is registration-gated by a promo dialog, guest settings are local UI controls, and the bundle shows Add Country/settings/clone/delete/storage state paths; date-specific non-US snapshots and authenticated Add/settings/clone/delete persistence remain open.
+- Macro maps/yield curves pages and bundles are public. Macro maps runtime is now proven as a public chart-data composition for current quote snapshots and GDP historical series. Yield curves default US component-data is public, non-US AU/DE/JP current yield quotes are public through `data.tradingview.com` quote WebSocket using the `available_countries` term registry, AU/DE/JP 10Y daily history is public through chart `resolve_symbol`/`create_series`, guest Add Country is registration-gated by a promo dialog, guest settings are local UI controls, and the bundle shows Add Country/settings/clone/delete/storage state paths; authenticated Add/settings/clone/delete persistence remains open.
 - Fundamentals config is public and can seed metadata instead of hard-coding field lists.
 
 ### News / Community / Widgets
@@ -163,7 +163,7 @@ The next wave should use either more available agent slots or serial local captu
 
 1. Authenticated browser mutations: alert create/edit/delete, watchlist CRUD, layout save/load/delete, drawing add/delete/favorite. These need explicit rollback plans before mutation.
 2. Authenticated read-only browser capture: portfolio, paper trading account state, broker/paper panel, saved charts, chart-storage non-empty layout payloads.
-3. Public browser runtime: Pine Screener interaction, macro map filter-only indicator/country/slider UI follow-ups, yield date-specific snapshot follow-ups, and widget interaction follow-ups for Advanced Chart socket-frame postMessage deltas, optional timeline pagination/filtering, and interaction-driven widget scanner deltas.
+3. Public browser runtime: Pine Screener interaction, macro map filter-only indicator/country/slider UI follow-ups, seasonals follow-ups, and widget interaction follow-ups for Advanced Chart socket-frame postMessage deltas, optional timeline pagination/filtering, and interaction-driven widget scanner deltas.
 4. Bundle decompilation in temp-only workspace: `calendar_page`, `macro_maps_page`, `yield_curves_page`, `pine_screener`, `new_standalone_screener`, and deeper options chunks.
 5. WebSocket UI flows: replay, deep backtesting, pushstream triggers, charts-polygon intended trigger.
 6. Paired auth probes: same request shape with and without cookies for every read endpoint promoted from HAR evidence.
