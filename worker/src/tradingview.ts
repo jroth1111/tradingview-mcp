@@ -712,6 +712,82 @@ export const getIndicatorMeta = async (req: IndicatorMetaRequest): Promise<Indic
   };
 };
 
+// === TYPED INDICATOR INPUTS (derived from metaInfo.inputs) ===
+// Translates the verbose INPUT_* enum to the 13 short-form StudyInputType values.
+const INPUT_TYPE_MAP: Record<string, string> = {
+  integer: "integer",
+  INPUT_INTEGER: "integer",
+  float: "float",
+  INPUT_FLOAT: "float",
+  price: "price",
+  INPUT_PRICE: "price",
+  bool: "bool",
+  INPUT_BOOL: "bool",
+  text: "text",
+  INPUT_STRING: "text",
+  INPUT_TEXT: "text",
+  text_area: "text_area",
+  INPUT_TEXT_AREA: "text_area",
+  symbol: "symbol",
+  INPUT_SYMBOL: "symbol",
+  session: "session",
+  INPUT_SESSION: "session",
+  source: "source",
+  INPUT_SOURCE: "source",
+  resolution: "resolution",
+  INPUT_RESOLUTION: "resolution",
+  INPUT_TIMEFRAME: "resolution",
+  time: "time",
+  INPUT_TIME: "time",
+  bar_time: "bar_time",
+  INPUT_BAR_TIME: "bar_time",
+  color: "color",
+  INPUT_COLOR: "color",
+};
+
+export interface TypedInput {
+  id: string;
+  name: string;
+  type: string;
+  defval?: any;
+  minval?: number;
+  maxval?: number;
+  step?: number;
+  options?: any[];
+  group?: string;
+  inline?: string;
+  tooltip?: string;
+  isHidden?: boolean;
+  isFake?: boolean;
+}
+
+export const getTypedIndicatorInputs = async (
+  req: IndicatorMetaRequest,
+): Promise<{ id: string; version: string; inputs: TypedInput[] }> => {
+  const meta = await getIndicatorMeta(req);
+  const inputs: TypedInput[] = (meta.inputs || []).map((mi: any) => {
+    const rawType = String(mi.type || "");
+    const type = INPUT_TYPE_MAP[rawType] || rawType.toLowerCase().replace(/^input_/, "") || "text";
+    const out: TypedInput = {
+      id: mi.id,
+      name: mi.name || mi.id,
+      type,
+      defval: mi.defval,
+    };
+    if (mi.min != null) out.minval = mi.min;
+    if (mi.max != null) out.maxval = mi.max;
+    if (mi.step != null) out.step = mi.step;
+    if (Array.isArray(mi.options)) out.options = mi.options;
+    if (mi.group) out.group = mi.group;
+    if (mi.inline) out.inline = mi.inline;
+    if (mi.tooltip) out.tooltip = mi.tooltip;
+    if (mi.isHidden) out.isHidden = true;
+    if (mi.isFake) out.isFake = true;
+    return out;
+  });
+  return { id: meta.id, version: meta.version, inputs };
+};
+
 export interface PrivateIndicator {
   id: string;
   version: string;
