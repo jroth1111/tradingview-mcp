@@ -7,6 +7,7 @@
 - Baseline commit: `fd2460a28557184c09c637303eb4f1dd7ff978c9`
 - Evidence timestamp: `2026-05-06T20:29:32Z`
 - Scope covered in this pass: public unauthenticated TradingView homepage, chart page, markets page, linked JavaScript bundles, current Worker/core/skill authority, and selected public service-host probes
+- Expanded public product-page delta: `docs/tradingview-surface-expansion-2026-05-06.md`
 - Scope not yet covered: authenticated browser network capture, plan-gated UI paths, full WebSocket frame capture, source maps, account-specific watchlists/layouts/alerts, mobile app traffic, and all locale/product pages beyond sampled pages
 
 This is not a completeness claim. The purpose of this pass is to turn the unknown-unknown workflow into durable evidence and identify the next probes required to keep rediscovering surfaces when TradingView changes.
@@ -211,7 +212,7 @@ Repo support:
 ## Prioritized Roadmap
 
 1. Authenticated browser capture pass: chart load, symbol search, indicator search/add, Pine editor open/save/compile, layout save/load, watchlist open/save, alert create/edit/delete, screener save/autosave, replay/deep backtesting, news alert, options tab, portfolio/paper dialogs.
-2. Bundle expansion pass: fetch product-specific pages for heatmaps, economic calendar, yield curves, macro maps, options, portfolio, paper trading, widgets, Pine screener, CEX/DEX screeners, and compare new bundle chunks against this baseline.
+2. Bundle expansion pass: fetched product-specific pages for heatmaps, economic calendar, yield curves, macro maps, options, portfolio, paper trading, widgets, Pine screener, CEX/DEX screeners, and compared new bundle chunks against this baseline. Current artifact: `docs/tradingview-surface-expansion-2026-05-06.md`.
 3. WebSocket protocol pass: capture chart/prodata/history-data frame names and payload shapes; compare against `packages/tradingview-core/src/constants.ts` and `worker/src/tv-raw-socket.ts`.
 4. Worker gap implementation planning: group additions by authority boundary: chart/session protocol, screeners/storage, Pine/script, calendar/macro, alerts/notifications, watchlists/layouts, options/portfolio/paper.
 5. Robustness pass: every new upstream integration must preserve error categories `network`, `rate_limit`, `auth`, `upstream`, `bad_request`, and should retry network failures without downgrading capability state.
