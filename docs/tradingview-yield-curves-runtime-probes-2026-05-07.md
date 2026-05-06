@@ -66,6 +66,17 @@ A clean no-login browser load of `https://www.tradingview.com/yield-curves/` pro
 
 No WebSocket was needed for the first-load default table. The public component-data payload already carries the rendered scan rows for default US yield curves.
 
+Follow-up clean no-login UI clicks at `2026-05-06T22:45Z` produced:
+
+- `data-qa-id="add-country-button"` click succeeded as a UI action but opened a promotion dialog, not a country selector.
+- Promo dialog text: `Go deeper into bond analysis`; it explains that historical yield curves, country comparison, and trend tools require registration and includes `Join for free`.
+- No country-add WebSocket, scanner, or component-data request was emitted by the guest Add click; only the already-loaded page/static assets, analytics, promo video, and `data.tradingview.com/ping` were observed.
+- `data-qa-id="yield-curves-settings-button"` opened a guest settings menu.
+- Settings menu exposed `key-tenors-button`, `tenor-scale-item` checked `true`, `linear-scale-item` checked `false`, and `heatmap-mode` checked `true`.
+- Clean guest profile still had no yield-related localStorage entries after Add and Settings interactions.
+
+This confirms the visible Add Country workflow is authenticated/registration-gated in the guest UI even though the underlying non-US current quote data is publicly readable by symbol.
+
 ## Runtime Shape
 
 Default component-data shape:
@@ -102,7 +113,9 @@ Bundle-derived runtime shape from the page chunks:
 | `#country=de` returned US data | client fragment ignored server-side | Use browser interaction or decompiled state writer |
 | No WebSocket on initial load | normal first-load architecture | Component-data endpoint is sufficient for default table |
 | Non-US AU/DE/JP quote symbols returned `qsd` `ok` over `data.tradingview.com` with `unauthorized_user_token` | unauthenticated-achievable data path | Model non-US current yields from `available_countries[].terms` plus quote/chart WebSocket protocol |
-| Add Country and Clone are wrapped in `runOrSigninWithFeature` | auth/feature gate may apply to guest UI actions | Keep UI-click and authenticated persistence behavior open |
+| Add Country guest click opened a promo registration dialog and did not open country selection | authenticated/registration-gated UI action | Keep authenticated Add Country capture open; model public non-US data separately from guest UI availability |
+| Clone is wrapped in `runOrSigninWithFeature` | auth/feature gate likely applies to guest UI actions | Keep authenticated clone/persistence behavior open |
+| Guest settings menu opened locally and exposed tenor/linear/heatmap controls without yield localStorage writes | unauthenticated local UI state | Persisted settings still need authenticated capture |
 
 No auth, rate-limit, DNS, or network outage was observed.
 
@@ -113,16 +126,16 @@ Yield curves can begin as a public read endpoint for the default component-data 
 - country metadata and term symbol registry from `available_countries`
 - current yield quote snapshots for non-default countries via `data.tradingview.com` quote WebSocket
 - settings fields and date row behavior
-- `Add`, `Clone`, and `Delete` guest-vs-authenticated semantics, including whether feature gates block guest UI operations or only prevent persistence
+- authenticated `Add`, `Clone`, and `Delete` semantics, including persistence behavior after the guest Add gate
 - historical/date-specific non-US snapshots through the bundle-derived chart snapshoter path
 
 ## Remaining Yield-Curves Gaps
 
-1. Browser-click the Add Country selector and confirm the exact guest UI outcome: dialog opens, sign-in prompt, or gated denial.
-2. Capture Settings changes and whether they affect component-data requests or local state only in an unauthenticated browser.
-3. Capture authenticated settings persistence for `YieldCurves` / deprecated `yield-curves`.
+1. Capture authenticated Add Country country-picker behavior and resulting chart/quote frames.
+2. Capture authenticated settings persistence for `YieldCurves` / deprecated `yield-curves`.
+3. Capture authenticated Clone/Delete persistence semantics.
 4. Probe date-specific non-US snapshots through the bundle-derived chart snapshoter path, not only current quotes.
 
 ## Completion Decision
 
-Yield curves are stronger than before: default public component-data and initial browser rendering are verified; naive non-US parameter guesses are classified as route/parameter misses; non-US current yield symbols for AU/DE/JP are verified public through quote WebSocket; and bundle mining identifies the Add Country, settings, clone, delete, and authenticated-storage paths. The full TradingView rediscovery objective remains incomplete because yield UI-click confirmation/authenticated persistence, authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.
+Yield curves are stronger than before: default public component-data and initial browser rendering are verified; naive non-US parameter guesses are classified as route/parameter misses; non-US current yield symbols for AU/DE/JP are verified public through quote WebSocket; bundle mining identifies the Add Country, settings, clone, delete, and authenticated-storage paths; and guest Add/Settings UI behavior is classified. The full TradingView rediscovery objective remains incomplete because authenticated yield Add/settings/clone/delete persistence, date-specific non-US snapshots, broader authenticated surfaces, mutation probes, replay/deep-backtesting, Pine Screener auth behavior, widget controlled interactions, mobile/desktop traffic, and broader account-gated flows remain open.
