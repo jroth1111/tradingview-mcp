@@ -34,7 +34,7 @@ This audit does not mark the objective complete. It maps completed evidence and 
 | Macro maps browser runtime capture | `docs/tradingview-macro-maps-browser-runtime-capture-2026-05-07.md` | verified for public default `IRYY` macro-map `data.tradingview.com` WebSocket session and populated `ECONOMICS:*IRYY` quote snapshots with `unauthorized_user_token`; non-default interactions still open |
 | Yield curves runtime probes | `docs/tradingview-yield-curves-runtime-probes-2026-05-07.md` | verified for default public component-data and browser-rendered US table; simple country query/path/hash guesses classified as misses |
 | Widget/embed runtime inventory | `docs/tradingview-widgets-embed-runtime-2026-05-07.md` | verified for public docs routes, S3 embed scripts, iframe shells, runtime host globals, and selected entry-bundle API leads; interactive frame schemas still open |
-| Widget browser runtime capture | `docs/tradingview-widget-browser-runtime-capture-2026-05-07.md` | verified for representative public widget XHR/WebSocket hosts and frame methods across advanced-chart, screener, stock-heatmap, market-overview, timeline, events, technical-analysis, and symbol-info; also captures stock screener/heatmap scanner bodies, technical-analysis scanner fields, Widget Sheriff validation behavior, and chart-events no-data envelope |
+| Widget browser runtime capture | `docs/tradingview-widget-browser-runtime-capture-2026-05-07.md` | verified for representative public widget XHR/WebSocket hosts and frame methods across advanced-chart, screener, stock-heatmap, market-overview, timeline, events, technical-analysis, and symbol-info; also captures stock screener/heatmap scanner bodies, technical-analysis scanner fields, Widget Sheriff validation behavior, chart-events no-data envelope, and Advanced Chart `set-symbol` parent postMessage behavior |
 | Preserve robust failure classes | failure sections across rediscovery/direct/product/shell artifacts classify auth, shape, invocation, network, endpoint mismatch, root-path absence, and observed-open-idle | verified |
 | Push all work | commits through this audit's latest committed state; `git status --short --branch` should be clean and tracking `origin/main` after the session close push | verified after session close |
 
@@ -69,7 +69,7 @@ This audit does not mark the objective complete. It maps completed evidence and 
 | News mediator | public HAR/runtime news flow and symbol view | Worker parity planning vs existing news-headlines route |
 | Ideas/Minds/community | existing Worker partial support and static leads | broader authenticated/community interactions |
 | Chats/support | support unread auth-gated; chats cookie-observed | scope decision and authenticated schemas |
-| Widgets/embeds | route patterns, widgetdata WebSocket evidence, public docs route inventory, S3 external-embedding scripts, 19 no-cookie iframe shells, runtime host matrix, Advanced Chart postMessage leads, screener widget product-family leads, representative browser XHR/WebSocket capture for eight widget families, stock screener/heatmap scanner body shapes, technical-analysis scanner fields, Widget Sheriff missing-origin validation, chart-events no-data envelope | controlled postMessage interactions, timeline/news trigger, populated events schema, broader widget preset bodies, broader Widget Sheriff cases, and Worker modeling decision |
+| Widgets/embeds | route patterns, widgetdata WebSocket evidence, public docs route inventory, S3 external-embedding scripts, 19 no-cookie iframe shells, runtime host matrix, Advanced Chart postMessage leads, screener widget product-family leads, representative browser XHR/WebSocket capture for eight widget families, stock screener/heatmap scanner body shapes, technical-analysis scanner fields, Widget Sheriff missing-origin validation, chart-events no-data envelope, and Advanced Chart `set-symbol` parent `quoteUpdate` behavior | remaining Advanced Chart interval/socket postMessage classification, timeline/news trigger, populated events schema, broader widget preset bodies, broader Widget Sheriff cases, and Worker modeling decision |
 | Mobile/desktop app surfaces | public web/bundle evidence only | not covered; needs mobile/desktop traffic capture if in scope |
 
 ## Completion Decision
@@ -85,7 +85,7 @@ The rediscovery has strong public, HAR, direct-probe, browser-runtime, WebSocket
 - Pine Screener authenticated/feature/plan behavior after the scan body is now derived.
 - Macro maps non-default interaction frames: indicator switch, country group switch, historical slider/series frames, and full quote field list.
 - Charts-polygon intended trigger.
-- Widget/embed controlled interaction schemas, broader preset bodies, and Worker modeling after representative public browser runtime capture.
+- Widget/embed remaining controlled interaction schemas, broader preset bodies, and Worker modeling after representative public browser runtime capture.
 - Mobile/desktop app traffic, if the objective includes non-web TradingView clients.
 
 ## Required Next Input

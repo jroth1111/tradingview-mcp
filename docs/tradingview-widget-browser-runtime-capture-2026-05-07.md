@@ -77,6 +77,18 @@ Received frame methods included:
 
 The same page also opened `wss://pushstream.tradingview.com/message-pipe-ws/public`, but no frames arrived during the capture window. Preserve this as public open-idle stream evidence, not absence of pushstream behavior.
 
+#### Controlled PostMessage Probe
+
+A follow-up clean Chrome CDP probe embedded `advanced-chart` in a parent page and captured parent `message` events while sending controlled iframe messages:
+
+- Parent received `tv-widget-load` from `https://www.tradingview-widget.com`.
+- Parent received `quoteUpdate` messages for the initial `BATS_DLY:AAPL` state.
+- Sending `{ name: "set-symbol", data: { symbol: "NASDAQ:MSFT" } }` to the iframe switched subsequent `quoteUpdate` events to `BATS_DLY:MSFT`.
+- Sending `{ name: "set-interval", data: { interval: "60" } }` produced no separately identified parent event in this short capture window.
+- The probe did not capture widget WebSocket frames on the parent CDP target, so this proves the parent/iframe postMessage behavior and quote-update event schema, not the underlying socket delta for the symbol switch.
+
+Classification: unauthenticated-achievable Advanced Chart parent message API for `set-symbol` and parent `quoteUpdate` events; `set-interval` remains partially classified because no distinct observable parent event was captured.
+
 ### Market Overview
 
 Sent frame methods included:
@@ -253,13 +265,14 @@ Representative widget runtime now proves these missing or indirect Worker famili
 - Widget-specific scanner presets for screener and heatmap widgets.
 - Chart-events Reuters feed for events widget.
 - Advanced Chart, Market Overview, Symbol Info, and Technical Analysis quote/session frame templates.
+- Advanced Chart parent/iframe `postMessage` control and `quoteUpdate` event schema for a public `set-symbol` change.
 - Public pushstream open-idle behavior for widgets that subscribe without a private channel.
 
 Existing Worker primitives overlap with parts of this behavior (`quotes`, generic `scan`, chart WebSocket framing, calendars/news), but there is still no first-class widget/embed model or documented mapping from widget config to Worker calls.
 
 ## Remaining Widget Gaps
 
-- Controlled Advanced Chart `postMessage` interaction: `set-symbol`, `set-interval`, and parent event capture.
+- Advanced Chart `set-interval` observable effect and underlying socket delta after postMessage control; `set-symbol` parent event behavior is now proven.
 - Longer timeline/news interaction capture or decompiled request-builder proof.
 - Populated chart-events response schema probe for events widget.
 - Broader Widget Sheriff parameter exploration beyond missing-origin validation.
