@@ -100,7 +100,7 @@ Classification delta:
 
 - Macro maps should not be treated as missing only because `/macro-maps/?component-data-only=1` returns null active data for a guest.
 - The hidden runtime path is chart-data-backed and should be probed through browser ChartApi/WebSocket capture or the existing chart-data authority, not by guessing additional REST query parameters.
-- Follow-up browser runtime capture in `docs/tradingview-macro-maps-browser-runtime-capture-2026-05-07.md` proved that the default no-login page opens `data.tradingview.com` and receives populated `ECONOMICS:*IRYY` `qsd` frames with `unauthorized_user_token`.
+- Follow-up browser/direct runtime capture in `docs/tradingview-macro-maps-browser-runtime-capture-2026-05-07.md` proved that the default no-login page opens `data.tradingview.com` and receives populated `ECONOMICS:*IRYY` `qsd` frames with `unauthorized_user_token`. Direct public probes also returned populated non-default `US{GDP,UR,INTR,GDG}` quote snapshots and `ECONOMICS:USGDP` historical `resolve_symbol`/`create_series` frames.
 
 ## Failure Classification
 
@@ -123,5 +123,5 @@ Implementation should preserve the discovered authority boundaries:
 ## Remaining Gaps
 
 1. Authenticated Pine Screener capture to distinguish login-only, `PINE_SCREENER` feature flag, and paid-plan entitlement failures.
-2. Browser macro maps interaction capture for indicator switch, country group switch, historical slider movement, and the full quote field list. Default `IRYY` quote snapshots are now runtime-proven.
+2. Browser macro maps interaction capture for filter-only indicators, country group switch behavior, exact country-code list changes, and historical slider event sequencing. Default `IRYY`, non-default `GDP`/`UR`/`INTR`/`GDG` quote snapshots, and GDP historical series frames are now runtime-proven.
 3. Worker design decision: expose macro maps as a composed product route, or expose lower-level economic-symbol quote/series helpers first.
