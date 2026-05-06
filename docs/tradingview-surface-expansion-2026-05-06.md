@@ -6,6 +6,7 @@
 - Parent context: `docs/tradingview-surface-rediscovery-2026-05-06.md`
 - Evidence timestamp: `2026-05-06T20:40Z`
 - Scope: unauthenticated product-page and bundle expansion pass
+- Options runtime follow-up: `docs/tradingview-options-runtime-capture-2026-05-07.md`
 - Target pages: heatmaps, calendars, yield curves, macro maps, options, widget docs, Pine screener, CEX screener, DEX screener, bond screener, ETF screener, portfolio route, paper-trading route
 
 This pass expands the first public sample from homepage/chart/markets into product-specific pages. It still does not replace authenticated browser runtime capture.
@@ -119,7 +120,7 @@ No service probe in this pass failed due to DNS or local network outage. The fai
 | Economic calendar render | public page plus `/calendar/render` 403 | partial via dividend/earnings only; economic calendar absent |
 | Yield curves | dedicated page and `yield_curves_page` bundle | absent |
 | Macro maps/world economy | dedicated page, world-economy route family, `macro_maps_page` bundle | absent |
-| Options product | dedicated page, options bundle, chain/strategy/volatility route leads | absent |
+| Options product | dedicated page, options bundle, runtime `scanner.tradingview.com/options/scan2` and `/global/scan2` request shapes, static chain/strategy/volatility route leads | absent |
 | Pine screener | dedicated page, `pine_screener` bundle, Pine scanner host/path | absent |
 | CEX/DEX/Bond/ETF screeners | dedicated pages, `new_standalone_screener`, `/api/v2/screens` | generic scanner only; these product surfaces absent |
 | News flow taxonomy | news-flow and provider/category route families | partial news headline/content only |
@@ -133,7 +134,7 @@ No service probe in this pass failed due to DNS or local network outage. The fai
 1. Beautify/decompile product bundles for `calendar_page`, `market_heatmap`, `macro_maps_page`, `yield_curves_page`, `options_product`, `pine_screener`, and `new_standalone_screener`; extract request builders, host selection, methods, query parameters, and payload schemas.
 2. Use browser network capture against the same product pages to observe real request methods and parameters. Static root `GET` probes are insufficient for these endpoints.
 3. For screeners, capture `/api/v2/screens` and `/pine_scanner_http/scan` request bodies from the UI rather than guessing.
-4. For options, capture options page XHR before treating `/options/chain`, `/v1/strategies-chart`, or `/v1/volatility-chart` as absent; current 404s may be missing symbol/date/body parameters or wrong host.
+4. For options, first-load XHR is now captured in `docs/tradingview-options-runtime-capture-2026-05-07.md`; still capture strategy builder, strategy finder, volatility chart, and underlying/expiry interactions before treating `/options/chain`, `/v1/strategies-chart`, or `/v1/volatility-chart` as absent.
 5. For portfolio and paper trading, use authenticated UI capture; public `/portfolio/` and `/paper-trading/` route 404s are not service absence.
 
 ## Acceptance Holes
