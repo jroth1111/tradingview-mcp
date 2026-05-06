@@ -790,30 +790,214 @@ export const getUserProfile = async (req: {
   };
 };
 
-// === APPLY STUDY (limited helper) ===
+// === RUN STUDY (verified create_study 6-arg shape, du frame accumulator) ===
+//
+// Wire format (recon 2026-05-07):
+//   create_study [cs, st_slot, turnaround, parent_series_id, indicator_id_with_version, inputs]
+//   du.params[1][st_slot] = { t: turnaround, st: [{i, v: [v0, v1, ...]}], ns?: {...non-series outputs...} }
+//
+// Plot output rides du, NOT study_completed. The previous implementation read
+// study_completed.params[1] which is always empty.
 export interface StudyRequest {
   symbol: string;
-  studyId: string; // e.g., "STD;RSI"
-  script?: string; // optional script code (for custom inputs)
-  inputs?: Record<string, any>;
+  studyId: string; // canonical "STD;RSI", "PUB;<hash>", "USER;<id>", or pre-qualified "STD;RSI@tv-basicstudies-241!"
+  script?: string; // accepted by the route contract; retained for source-backed study flows
+  inputs?: Record<string, any>; // raw wire form {in_0, in_1, ...}
+  params?: Record<string, any>; // friendly {name: value} mapped via metainfo
+  timeframe?: string | number; // default "60"
+  bars?: number; // default 300
+  parentSeriesId?: string; // sds_1 (default) or stN for study-on-study
   endpoint?: TradingviewEndpoint;
   sessionId?: string;
   sessionSign?: string;
   timeoutMs?: number;
 }
 
+export interface StudyPlot {
+  id: string;
+  name: string;
+  type: string;
+  data: Array<{ ts: number; value: any }>;
+}
+
 export interface StudyResult {
   symbol: string;
   studyId: string;
-  data: any;
+  studyVersion: string;
+  wireId: string;
+  timeframe: string;
+  bars: number;
+  plots: StudyPlot[];
+  nonseries?: Record<string, any>;
 }
+
+const SOURCE_ALIASES = new Set([
+  "open",
+  "high",
+  "low",
+  "close",
+  "hl2",
+  "hlc3",
+  "ohlc4",
+  "volume",
+]);
+
+interface ResolvedWireId {
+  wireId: string;
+  version: string;
+}
+
+const resolveStudyWireId = async (
+  rawId: string,
+  sessionId?: string,
+  sessionSign?: string,
+): Promise<ResolvedWireId> => {
+  // Already qualified — extract version segment for return only.
+  if (rawId.includes("@")) {
+    const versionMatch = rawId.match(/@[a-z-]+-([0-9]+)!?$/);
+    return { wireId: rawId, version: versionMatch?.[1] ?? "last" };
+  }
+
+  const headers: Record<string, string> = {};
+  if (sessionId) {
+    headers["cookie"] = sessionSign
+      ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
+      : `sessionid=${sessionId}`;
+  }
+  const versionsUrl = `https://pine-facade.tradingview.com/pine-facade/versions/${encodeURIComponent(rawId)}/last`;
+  let version = "last";
+  try {
+    const resp = await fetch(versionsUrl, { headers });
+    if (resp.ok) {
+      const data: any = await resp.json();
+      const v = Array.isArray(data) ? data[0]?.version : data?.version;
+      if (v != null) version = String(v);
+    }
+  } catch {
+    // tolerate network blips on version lookup; "last" works as a fallback
+  }
+
+  if (rawId.startsWith("PUB;") || rawId.startsWith("USER;")) {
+    return { wireId: `Script$${rawId}@tv-scripting-101!`, version };
+  }
+  if (rawId.startsWith("STD;")) {
+    const ns = version === "last" ? "tv-basicstudies" : `tv-basicstudies-${version}`;
+    return { wireId: `${rawId}@${ns}!`, version };
+  }
+  // Bare legacy id like "RSI" — treat as basicstudies.
+  const ns = version === "last" ? "tv-basicstudies" : `tv-basicstudies-${version}`;
+  return { wireId: `${rawId}@${ns}!`, version };
+};
+
+const buildInputsDict = (
+  rawInputs: Record<string, any> | undefined,
+  paramsByName: Record<string, any> | undefined,
+  meta: { inputs: any[] } | null,
+  parentSeriesId: string,
+): Record<string, any> => {
+  const inputs: Record<string, any> = { ...(rawInputs ?? {}) };
+
+  if (paramsByName && meta) {
+    for (const [name, value] of Object.entries(paramsByName)) {
+      const found = (meta.inputs || []).find((mi: any) => mi.name === name || mi.id === name);
+      if (!found) continue;
+      inputs[found.id] = value;
+    }
+  }
+
+  if (meta) {
+    for (const mi of meta.inputs || []) {
+      const id = mi.id as string;
+      if (!(id in inputs)) continue;
+      const t = (mi.type as string) || "";
+      const v = inputs[id];
+      // Source-typed: rewrite friendly aliases into "<seriesId>$<plotName>"
+      if (t === "source" && typeof v === "string") {
+        if (SOURCE_ALIASES.has(v)) {
+          inputs[id] = `${parentSeriesId}$${v}`;
+        }
+      }
+      // Symbol-typed: wrap bare strings in {type:"symbol", value}
+      if (t === "symbol" && typeof v === "string") {
+        inputs[id] = { type: "symbol", value: v };
+      }
+    }
+  }
+
+  return inputs;
+};
+
+const isUnixSeconds = (n: any): boolean =>
+  typeof n === "number" && n > 1_000_000_000 && n < 4_000_000_000;
+
+const buildStudyPlots = (
+  meta: { plots?: any[] } | null,
+  rowsBySlot: Record<string, Array<{ i: number; v: any[] }>>,
+  studySlot: string,
+  seriesIndexToTs: Map<number, number>,
+): StudyPlot[] => {
+  const rows = rowsBySlot[studySlot] || [];
+  if (rows.length === 0) return [];
+
+  const sortedRows = [...rows].sort((a, b) => a.i - b.i);
+  // Detect whether v[0] looks like a unix-seconds timestamp.
+  const sample = sortedRows[0]?.v ?? [];
+  const tsIsFirst = sample.length > 0 && isUnixSeconds(sample[0]);
+
+  const plotDefs = (meta?.plots || []).filter((p: any) => p?.type !== "no_series");
+  const numPlotChannels = tsIsFirst ? sample.length - 1 : sample.length;
+  const plotCount = plotDefs.length || numPlotChannels;
+
+  const plots: StudyPlot[] = [];
+  for (let pi = 0; pi < plotCount; pi += 1) {
+    const def = plotDefs[pi] || {};
+    const data: Array<{ ts: number; value: any }> = [];
+    for (const row of sortedRows) {
+      const ts = tsIsFirst
+        ? Number(row.v[0])
+        : (seriesIndexToTs.get(row.i) ?? row.i);
+      const value = tsIsFirst ? row.v[pi + 1] : row.v[pi];
+      if (value == null) continue;
+      data.push({ ts, value });
+    }
+    plots.push({
+      id: def.id || `plot_${pi}`,
+      name: def.title || def.id || `plot_${pi}`,
+      type: def.type || "line",
+      data,
+    });
+  }
+  return plots;
+};
 
 export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
   if (!req.symbol || !req.studyId) {
     throw new Error("symbol and studyId required");
   }
 
+  const timeframe = validateTimeframe(req.timeframe ?? "60");
+  const bars = Math.max(1, Math.min(req.bars ?? 300, MAX_BATCH_SIZE));
+  const parentSeriesId = req.parentSeriesId ?? "sds_1";
+
+  // Resolve the wire id and (best-effort) metainfo for plot/input mapping.
+  const [{ wireId, version }, metaResult] = await Promise.allSettled([
+    resolveStudyWireId(req.studyId, req.sessionId, req.sessionSign),
+    getIndicatorMeta({
+      id: req.studyId.split("@")[0],
+      sessionId: req.sessionId,
+      sessionSign: req.sessionSign,
+    }).catch(() => null as any),
+  ]).then((r) => [
+    r[0].status === "fulfilled" ? r[0].value : { wireId: req.studyId, version: "last" },
+    r[1].status === "fulfilled" ? r[1].value : null,
+  ]) as [ResolvedWireId, IndicatorMeta | null];
+
+  const meta = metaResult;
+  const inputsDict = buildInputsDict(req.inputs, req.params, meta, parentSeriesId);
+
   const chartSession = generateSessionId("cs");
+  const studySlot = "st1";
+
   const connection = await connect({
     sessionId: req.sessionId,
     sessionSign: req.sessionSign,
@@ -822,32 +1006,106 @@ export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
   });
 
   return new Promise<StudyResult>((resolve, reject) => {
-    let completed = false;
+    let settled = false;
+    const rowsBySlot: Record<string, Array<{ i: number; v: any[] }>> = {};
+    const nonseriesBySlot: Record<string, Record<string, any>> = {};
+    const seriesIndexToTs = new Map<number, number>();
+    let seriesReady = false;
+
+    const finish = (err: any | null, _result?: StudyResult) => {
+      if (settled) return;
+      settled = true;
+      unsubscribe();
+      connection.close().catch(() => {});
+      if (err) reject(err);
+      else resolve(_result!);
+    };
+
+    const buildResult = (): StudyResult => ({
+      symbol: req.symbol,
+      studyId: req.studyId,
+      studyVersion: version,
+      wireId,
+      timeframe,
+      bars,
+      plots: buildStudyPlots(meta, rowsBySlot, studySlot, seriesIndexToTs),
+      nonseries: nonseriesBySlot[studySlot],
+    });
 
     const unsubscribe = connection.subscribe((event) => {
       try {
-        if (event.name === "study_completed") {
-          completed = true;
-          unsubscribe();
-          connection.close().catch(() => {});
-          resolve({
-            symbol: req.symbol,
-            studyId: req.studyId,
-            data: event.params[1],
-          });
+        if (event.name === "timescale_update") {
+          const sessionData = event.params[1] || {};
+          const seriesKey = Object.keys(sessionData).find(
+            (k) => k === parentSeriesId && sessionData[k]?.s,
+          );
+          if (seriesKey) {
+            const seriesBars: any[] = sessionData[seriesKey].s;
+            for (const bar of seriesBars) {
+              if (bar?.i != null && Array.isArray(bar.v) && isUnixSeconds(bar.v[0])) {
+                seriesIndexToTs.set(bar.i, bar.v[0]);
+              }
+            }
+          }
           return;
         }
+
+        if (event.name === "series_completed") {
+          if (!seriesReady) {
+            seriesReady = true;
+            // Now safe to create the study; some upstream paths reject if sent before series_completed.
+            try {
+              connection.send("create_study", [
+                chartSession,
+                studySlot,
+                "",
+                parentSeriesId,
+                wireId,
+                inputsDict,
+              ]);
+            } catch (err) {
+              finish(err);
+            }
+          }
+          return;
+        }
+
+        if (event.name === "du") {
+          const slotMap = event.params[1] || {};
+          for (const [slot, payload] of Object.entries<any>(slotMap)) {
+            const rows = (payload?.st || []) as Array<{ i: number; v: any[] }>;
+            if (rows.length > 0) {
+              if (!rowsBySlot[slot]) rowsBySlot[slot] = [];
+              rowsBySlot[slot].push(...rows);
+            }
+            if (payload?.ns) {
+              nonseriesBySlot[slot] = { ...(nonseriesBySlot[slot] || {}), ...payload.ns };
+            }
+          }
+          return;
+        }
+
+        if (event.name === "study_completed") {
+          // study_completed carries [slot, turnaround] only. Resolve from accumulated du.
+          finish(null, buildResult());
+          return;
+        }
+
         if (event.name === "study_error") {
-          completed = true;
-          unsubscribe();
-          connection.close().catch(() => {});
-          reject(new Error("study_error"));
+          const reason = event.params?.[2];
+          const detail = event.params?.[3];
+          const err = new Error(`study_error: ${reason ?? "unknown"}${detail ? `: ${JSON.stringify(detail)}` : ""}`);
+          (err as any).reason = reason;
+          (err as any).detail = detail;
+          finish(err);
+          return;
+        }
+
+        if (event.name === "symbol_error") {
+          finish(new Error(`symbol_error: ${JSON.stringify(event.params)}`));
         }
       } catch (err) {
-        completed = true;
-        unsubscribe();
-        connection.close().catch(() => {});
-        reject(err);
+        finish(err);
       }
     });
 
@@ -855,32 +1113,34 @@ export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
       connection.send("chart_create_session", [chartSession, ""]);
       connection.send("resolve_symbol", [
         chartSession,
-        `sds_sym_${req.studyId}`,
+        "sds_sym_1",
         "=" + JSON.stringify({ symbol: req.symbol, adjustment: "splits" }),
       ]);
-      connection.send("create_study", [
+      connection.send("create_series", [
         chartSession,
-        req.studyId,
-        JSON.stringify({
-          script: req.script,
-          inputs: req.inputs || {},
-        }),
+        parentSeriesId,
+        "s1",
+        "sds_sym_1",
+        timeframe,
+        bars,
+        "",
       ]);
+      // create_study fires after series_completed in the subscriber.
     } catch (err) {
-      completed = true;
-      unsubscribe();
-      connection.close().catch(() => {});
-      reject(err);
+      finish(err);
     }
 
     const ttl = setTimeout(() => {
-      if (!completed) {
-        unsubscribe();
-        connection.close().catch(() => {});
-        reject(new Error("Timed out running study"));
+      if (!settled) {
+        // If we received any du rows already, surface them as a partial result rather than time out.
+        if ((rowsBySlot[studySlot] || []).length > 0) {
+          finish(null, buildResult());
+        } else {
+          finish(new Error("Timed out running study"));
+        }
       }
       clearTimeout(ttl);
-    }, req.timeoutMs ?? 12000);
+    }, req.timeoutMs ?? 15000);
   });
 };
 

@@ -974,8 +974,11 @@ app.post("/v1/study", async (c) => {
     const body = (await c.req.json()) as {
       symbol: string;
       studyId: string;
-      script?: string;
       inputs?: Record<string, any>;
+      params?: Record<string, any>;
+      timeframe?: string | number;
+      bars?: number;
+      parentSeriesId?: string;
       endpoint?: string;
       sessionId?: string;
       sessionSign?: string;
@@ -990,8 +993,11 @@ app.post("/v1/study", async (c) => {
     const result = await runStudy({
       symbol: body.symbol,
       studyId: body.studyId,
-      script: body.script,
       inputs: body.inputs,
+      params: body.params,
+      timeframe: body.timeframe,
+      bars: body.bars,
+      parentSeriesId: body.parentSeriesId,
       endpoint: body.endpoint as any,
       sessionId: session.sessionId,
       sessionSign: session.sessionSign,
