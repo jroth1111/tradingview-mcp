@@ -166,14 +166,170 @@ paths:
     post:
       summary: Fetch indicator metadata.
       responses: { "200": { description: Indicator metadata. } }
+  /v1/indicators/inputs:
+    post:
+      summary: Fetch typed indicator inputs.
+      responses: { "200": { description: Typed input descriptors. } }
+  /v1/indicators/builtin:
+    post:
+      summary: Fetch built-in indicator catalog.
+      responses: { "200": { description: Built-in indicator catalog. } }
   /v1/indicators/private:
     post:
       summary: List private indicators for the stored or provided session.
       responses: { "200": { description: Private indicators. } }
+  /v1/pubscripts/library:
+    post:
+      summary: Fetch public script library results.
+      responses: { "200": { description: Public script library. } }
+  /v1/pubscripts/editors-picks:
+    post:
+      summary: Fetch public script editors' picks.
+      responses: { "200": { description: Editors' picks. } }
+  /v1/pubscripts/batch:
+    post:
+      summary: Fetch public script details by id.
+      responses: { "200": { description: Script details. } }
+  /v1/pubscripts/suggest:
+    post:
+      summary: Fetch public script suggestions.
+      responses: { "200": { description: Script suggestions. } }
+  /v1/pubscripts/personal-access:
+    post:
+      summary: Fetch paid/private script access for the stored or provided session.
+      responses: { "200": { description: Personal script access. } }
+  /v1/pubscripts/packages-store:
+    post:
+      summary: Fetch Pine script package store.
+      responses: { "200": { description: Script packages. } }
   /v1/study:
     post:
       summary: Run a TradingView study.
       responses: { "200": { description: Study output. } }
+  /v1/alerts/health:
+    get:
+      summary: Check TradingView price alerts service liveness.
+      responses: { "200": { description: Alerts service status. } }
+  /v1/alerts/list:
+    post:
+      summary: List price alerts for a user.
+      responses: { "200": { description: Alerts list. } }
+  /v1/alerts/get:
+    post:
+      summary: Fetch price alerts by id.
+      responses: { "200": { description: Alert details. } }
+  /v1/alerts/create:
+    post:
+      summary: Create a price alert.
+      responses: { "200": { description: Alert creation result. } }
+  /v1/alerts/modify:
+    post:
+      summary: Modify and restart a price alert.
+      responses: { "200": { description: Alert modification result. } }
+  /v1/alerts/delete:
+    post:
+      summary: Delete price alerts.
+      responses: { "200": { description: Alert delete result. } }
+  /v1/alerts/stop:
+    post:
+      summary: Stop price alerts.
+      responses: { "200": { description: Alert stop result. } }
+  /v1/alerts/restart:
+    post:
+      summary: Restart price alerts.
+      responses: { "200": { description: Alert restart result. } }
+  /v1/alerts/clone:
+    post:
+      summary: Clone price alerts.
+      responses: { "200": { description: Alert clone result. } }
+  /v1/alerts/fires/list:
+    post:
+      summary: List alert fire history.
+      responses: { "200": { description: Alert fire history. } }
+  /v1/alerts/fires/delete:
+    post:
+      summary: Delete alert fires by id.
+      responses: { "200": { description: Alert fire delete result. } }
+  /v1/alerts/fires/delete-all:
+    post:
+      summary: Delete all alert fires.
+      responses: { "200": { description: Alert fire delete-all result. } }
+  /v1/alerts/fires/delete-by-filter:
+    post:
+      summary: Delete alert fires by filter.
+      responses: { "200": { description: Alert fire delete-by-filter result. } }
+  /v1/alerts/fires/offline:
+    post:
+      summary: Fetch offline alert fires.
+      responses: { "200": { description: Offline alert fires. } }
+  /v1/alerts/fires/offline-controls:
+    post:
+      summary: Fetch offline alert fire controls.
+      responses: { "200": { description: Offline alert fire controls. } }
+  /v1/alerts/fires/clear-offline:
+    post:
+      summary: Clear offline alert fires.
+      responses: { "200": { description: Clear offline alert fires result. } }
+  /v1/alerts/fires/clear-offline-controls:
+    post:
+      summary: Clear offline alert fire controls.
+      responses: { "200": { description: Clear offline alert fire controls result. } }
+  /v1/alerts/pine-alert:
+    post:
+      summary: Generate and create a Pine alert.
+      responses: { "200": { description: Pine alert creation result. } }
+  /v1/study-templates/list:
+    post:
+      summary: List study templates.
+      responses: { "200": { description: Study templates. } }
+  /v1/study-templates/get:
+    post:
+      summary: Fetch a study template.
+      responses: { "200": { description: Study template. } }
+  /v1/study-templates/create:
+    post:
+      summary: Create a study template.
+      responses: { "200": { description: Study template creation result. } }
+  /v1/study-templates/update:
+    post:
+      summary: Update a study template.
+      responses: { "200": { description: Study template update result. } }
+  /v1/study-templates/rename:
+    post:
+      summary: Rename a study template.
+      responses: { "200": { description: Study template rename result. } }
+  /v1/study-templates/delete:
+    post:
+      summary: Delete a study template.
+      responses: { "200": { description: Study template delete result. } }
+  /v1/study-templates/favorite:
+    post:
+      summary: Favorite or unfavorite a study template.
+      responses: { "200": { description: Study template favorite result. } }
+  /v1/drawing-templates/list:
+    post:
+      summary: List drawing templates.
+      responses: { "200": { description: Drawing templates. } }
+  /v1/drawing-templates/get:
+    post:
+      summary: Fetch a drawing template.
+      responses: { "200": { description: Drawing template. } }
+  /v1/drawing-templates/save:
+    post:
+      summary: Save a drawing template.
+      responses: { "200": { description: Drawing template save result. } }
+  /v1/drawing-templates/delete:
+    post:
+      summary: Delete a drawing template.
+      responses: { "200": { description: Drawing template delete result. } }
+  /v1/settings/load:
+    post:
+      summary: Load TradingView settings.
+      responses: { "200": { description: TradingView settings. } }
+  /v1/settings/save:
+    post:
+      summary: Save TradingView settings delta.
+      responses: { "200": { description: TradingView settings save result. } }
   /v1/backfill:
     post:
       summary: Backfill candles in batches.

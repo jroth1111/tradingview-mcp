@@ -584,6 +584,45 @@ app.get("/", (c) =>
       "/v1/meta/fundamentals",
       "/v1/meta/timeframes",
       "/v1/me",
+      "/v1/indicators/inputs",
+      "/v1/indicators/builtin",
+      "/v1/pubscripts/library",
+      "/v1/pubscripts/editors-picks",
+      "/v1/pubscripts/batch",
+      "/v1/pubscripts/suggest",
+      "/v1/pubscripts/personal-access",
+      "/v1/pubscripts/packages-store",
+      "/v1/alerts/health",
+      "/v1/alerts/list",
+      "/v1/alerts/get",
+      "/v1/alerts/create",
+      "/v1/alerts/modify",
+      "/v1/alerts/delete",
+      "/v1/alerts/stop",
+      "/v1/alerts/restart",
+      "/v1/alerts/clone",
+      "/v1/alerts/fires/list",
+      "/v1/alerts/fires/delete",
+      "/v1/alerts/fires/delete-all",
+      "/v1/alerts/fires/delete-by-filter",
+      "/v1/alerts/fires/offline",
+      "/v1/alerts/fires/offline-controls",
+      "/v1/alerts/fires/clear-offline",
+      "/v1/alerts/fires/clear-offline-controls",
+      "/v1/alerts/pine-alert",
+      "/v1/study-templates/list",
+      "/v1/study-templates/get",
+      "/v1/study-templates/create",
+      "/v1/study-templates/update",
+      "/v1/study-templates/rename",
+      "/v1/study-templates/delete",
+      "/v1/study-templates/favorite",
+      "/v1/drawing-templates/list",
+      "/v1/drawing-templates/get",
+      "/v1/drawing-templates/save",
+      "/v1/drawing-templates/delete",
+      "/v1/settings/load",
+      "/v1/settings/save",
     ],
     note:
       "Provide sessionId from your TradingView browser session and use endpoint=prodata for premium feeds.",
@@ -1128,6 +1167,860 @@ app.post("/v1/indicators/meta", async (c) => {
   } catch (err: any) {
     if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
     return routeError(c, err, "bad request");
+  }
+});
+
+// === P3 — typed indicator inputs ===
+app.post("/v1/indicators/inputs", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      id: string;
+      version?: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.id) return c.json({ error: "id required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await getTypedIndicatorInputs({
+      id: body.id,
+      version: body.version,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
+  }
+});
+
+// === P4 — built-in indicator catalog ===
+app.post("/v1/indicators/builtin", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      filter?: any;
+      kind?: any;
+      q?: string;
+      fundamentalCategory?: string;
+      cacheTtlSeconds?: number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await getBuiltinCatalog({
+      filter: body.filter,
+      kind: body.kind,
+      q: body.q,
+      fundamentalCategory: body.fundamentalCategory,
+      cacheTtlSeconds: body.cacheTtlSeconds,
+      cache: c.env.CACHE_META,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    if (session.sessionId) await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
+  }
+});
+
+// === P5 — pubscripts library ===
+app.post("/v1/pubscripts/library", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      offset?: number;
+      count?: number;
+      sort?: string;
+      isPaid?: boolean;
+      type?: string;
+    };
+    const result = await getPubLibrary(body);
+    return c.json({ result });
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.post("/v1/pubscripts/editors-picks", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as { type?: string };
+    const result = await getPubEditorsPicks(body.type);
+    return c.json({ result });
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.post("/v1/pubscripts/batch", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      scriptIdPart: string;
+      showHidden?: boolean;
+    };
+    if (!body?.scriptIdPart) return c.json({ error: "scriptIdPart required" }, 400);
+    const result = await getPubBatch(body.scriptIdPart, body.showHidden);
+    return c.json({ result });
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.post("/v1/pubscripts/suggest", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as { search: string };
+    if (!body?.search) return c.json({ error: "search required" }, 400);
+    const result = await getPubSuggest(body.search);
+    return c.json({ result });
+  } catch (err: any) {
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.post("/v1/pubscripts/personal-access", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    if (!session.sessionId) return c.json({ error: "sessionId required" }, 400);
+    const result = await getPubPersonalAccess(session.sessionId, session.sessionSign);
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
+  }
+});
+
+app.post("/v1/pubscripts/packages-store", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await getScriptPackagesStore(session.sessionId, session.sessionSign);
+    if (session.sessionId) await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "bad request");
+  }
+});
+
+// === P6 — alerts ===
+const requireAlertsCtx = async (
+  c: any,
+  body: { username?: string; sessionId?: string; sessionSign?: string },
+) => {
+  const session = await resolveSession(c.env.CACHE_META, {
+    sessionId: body?.sessionId,
+    sessionSign: body?.sessionSign,
+  });
+  if (!session.sessionId) {
+    return { error: c.json({ error: "sessionId required" }, 400) } as const;
+  }
+  if (!body?.username) {
+    return { error: c.json({ error: "username required" }, 400) } as const;
+  }
+  return {
+    session,
+    ctx: {
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+      username: body.username,
+    },
+  } as const;
+};
+
+app.get("/v1/alerts/health", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const result = await isAlertsAlive();
+    return c.json({ result });
+  } catch (err: any) {
+    return routeError(c, err, "alerts health failed");
+  }
+});
+
+app.post("/v1/alerts/list", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      userId: string | number;
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (body?.userId == null) return c.json({ error: "userId required" }, 400);
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await listAlerts(r.ctx, body.userId);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "alerts list failed");
+  }
+});
+
+app.post("/v1/alerts/get", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      alerts: number[];
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!Array.isArray(body?.alerts)) return c.json({ error: "alerts array required" }, 400);
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await getAlertsBatch(r.ctx, body.alerts);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "alerts get failed");
+  }
+});
+
+app.post("/v1/alerts/create", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      alert: any;
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.alert) return c.json({ error: "alert required" }, 400);
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await createAlert(r.ctx, body.alert);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "alerts create failed");
+  }
+});
+
+app.post("/v1/alerts/modify", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      alert: { alert_id: number } & Record<string, any>;
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.alert?.alert_id) return c.json({ error: "alert.alert_id required" }, 400);
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await modifyRestartAlert(r.ctx, body.alert);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "alerts modify failed");
+  }
+});
+
+const handleAlertBulkOp = async (
+  c: any,
+  fn: (ctx: any, ids: number[]) => Promise<any>,
+  errLabel: string,
+) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      alerts: number[];
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!Array.isArray(body?.alerts)) return c.json({ error: "alerts array required" }, 400);
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await fn(r.ctx, body.alerts);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, errLabel);
+  }
+};
+
+app.post("/v1/alerts/delete", (c) => handleAlertBulkOp(c, deleteAlerts, "alerts delete failed"));
+app.post("/v1/alerts/stop", (c) => handleAlertBulkOp(c, stopAlerts, "alerts stop failed"));
+app.post("/v1/alerts/restart", (c) => handleAlertBulkOp(c, restartAlerts, "alerts restart failed"));
+app.post("/v1/alerts/clone", (c) => handleAlertBulkOp(c, cloneAlerts, "alerts clone failed"));
+
+app.post("/v1/alerts/fires/list", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      limit?: number;
+      alert_id?: number;
+      before_time?: number;
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await listFires(r.ctx, {
+      limit: body.limit,
+      alert_id: body.alert_id,
+      before_time: body.before_time,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "fires list failed");
+  }
+});
+
+app.post("/v1/alerts/fires/delete", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      fires: number[];
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!Array.isArray(body?.fires)) return c.json({ error: "fires array required" }, 400);
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await deleteFires(r.ctx, body.fires);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "fires delete failed");
+  }
+});
+
+app.post("/v1/alerts/fires/delete-all", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await deleteAllFires(r.ctx);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "fires delete-all failed");
+  }
+});
+
+app.post("/v1/alerts/fires/delete-by-filter", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      alert_id?: number;
+      before_time?: number;
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await deleteFiresByFilter(r.ctx, {
+      alert_id: body.alert_id,
+      before_time: body.before_time,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "fires delete-by-filter failed");
+  }
+});
+
+app.post("/v1/alerts/fires/offline", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      limit?: number;
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await getOfflineFires(r.ctx, body.limit);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "offline fires failed");
+  }
+});
+
+app.post("/v1/alerts/fires/offline-controls", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await getOfflineFireControls(r.ctx);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "offline fire controls failed");
+  }
+});
+
+app.post("/v1/alerts/fires/clear-offline", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      payloads: any[];
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!Array.isArray(body?.payloads)) return c.json({ error: "payloads array required" }, 400);
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await clearOfflineFires(r.ctx, body.payloads);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "clear offline fires failed");
+  }
+});
+
+app.post("/v1/alerts/fires/clear-offline-controls", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      payloads: any[];
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!Array.isArray(body?.payloads)) return c.json({ error: "payloads array required" }, 400);
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await clearOfflineFireControls(r.ctx, body.payloads);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "clear offline controls failed");
+  }
+});
+
+app.post("/v1/alerts/pine-alert", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      alertInfo: any;
+      alert: any;
+      username: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.alertInfo) return c.json({ error: "alertInfo required" }, 400);
+    if (!body?.alert) return c.json({ error: "alert required" }, 400);
+    const r = await requireAlertsCtx(c, body);
+    if ("error" in r) return r.error;
+    const generated = await generatePineAlert(r.ctx.sessionId, r.ctx.sessionSign, body.alertInfo);
+    const merged = { ...body.alert, ...generated };
+    if (!merged.condition) merged.condition = { type: "pine_alert" };
+    else if (!merged.condition.type) merged.condition.type = "pine_alert";
+    const result = await createAlert(r.ctx, merged);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source, generated });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine-alert create failed");
+  }
+});
+
+// === P10 — study-templates and drawing-templates ===
+const requireTemplateCtx = async (
+  c: any,
+  body: { sessionId?: string; sessionSign?: string },
+) => {
+  const session = await resolveSession(c.env.CACHE_META, {
+    sessionId: body?.sessionId,
+    sessionSign: body?.sessionSign,
+  });
+  if (!session.sessionId) {
+    return { error: c.json({ error: "sessionId required" }, 400) } as const;
+  }
+  return {
+    session,
+    ctx: { sessionId: session.sessionId, sessionSign: session.sessionSign },
+  } as const;
+};
+
+app.post("/v1/study-templates/list", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await listStudyTemplates(r.ctx);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "study-templates list failed");
+  }
+});
+
+app.post("/v1/study-templates/get", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      id: string | number;
+      bucket?: "custom" | "standard" | "fundamentals";
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (body?.id == null) return c.json({ error: "id required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await getStudyTemplate(r.ctx, body.id, body.bucket ?? "custom");
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "study-template get failed");
+  }
+});
+
+app.post("/v1/study-templates/create", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      name: string;
+      content: string;
+      meta_info?: any;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.name) return c.json({ error: "name required" }, 400);
+    if (typeof body?.content !== "string") {
+      return c.json({ error: "content must be a JSON-encoded string" }, 400);
+    }
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await createStudyTemplate(r.ctx, {
+      name: body.name,
+      content: body.content,
+      meta_info: body.meta_info,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "study-template create failed");
+  }
+});
+
+app.post("/v1/study-templates/update", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      id: string | number;
+      name?: string;
+      content?: string;
+      meta_info?: any;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (body?.id == null) return c.json({ error: "id required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await updateStudyTemplate(r.ctx, body.id, {
+      name: body.name,
+      content: body.content,
+      meta_info: body.meta_info,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "study-template update failed");
+  }
+});
+
+app.post("/v1/study-templates/rename", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      id: string | number;
+      name: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (body?.id == null) return c.json({ error: "id required" }, 400);
+    if (!body?.name) return c.json({ error: "name required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await renameStudyTemplate(r.ctx, body.id, body.name);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "study-template rename failed");
+  }
+});
+
+app.post("/v1/study-templates/delete", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      id: string | number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (body?.id == null) return c.json({ error: "id required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await deleteStudyTemplate(r.ctx, body.id);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "study-template delete failed");
+  }
+});
+
+app.post("/v1/study-templates/favorite", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      id: string | number;
+      bucket?: "custom" | "standard";
+      favorite?: boolean;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (body?.id == null) return c.json({ error: "id required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await setStudyTemplateFavorite(
+      r.ctx,
+      body.id,
+      body.bucket ?? "custom",
+      body.favorite ?? true,
+    );
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "study-template favorite failed");
+  }
+});
+
+app.post("/v1/drawing-templates/list", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      tool: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.tool) return c.json({ error: "tool required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await listDrawingTemplates(r.ctx, body.tool);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "drawing-templates list failed");
+  }
+});
+
+app.post("/v1/drawing-templates/get", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      tool: string;
+      name: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.tool || !body?.name) return c.json({ error: "tool and name required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await getDrawingTemplate(r.ctx, body.tool, body.name);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "drawing-template get failed");
+  }
+});
+
+app.post("/v1/drawing-templates/save", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      tool: string;
+      name: string;
+      content: any;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.tool || !body?.name) return c.json({ error: "tool and name required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await saveDrawingTemplate(r.ctx, {
+      tool: body.tool,
+      name: body.name,
+      content: body.content,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "drawing-template save failed");
+  }
+});
+
+app.post("/v1/drawing-templates/delete", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      tool: string;
+      name: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.tool || !body?.name) return c.json({ error: "tool and name required" }, 400);
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await deleteDrawingTemplate(r.ctx, body.tool, body.name);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "drawing-template delete failed");
+  }
+});
+
+app.post("/v1/settings/load", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await loadSettings(r.ctx);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "settings load failed");
+  }
+});
+
+app.post("/v1/settings/save", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      delta: Record<string, any>;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.delta || typeof body.delta !== "object") {
+      return c.json({ error: "delta object required" }, 400);
+    }
+    const r = await requireTemplateCtx(c, body);
+    if ("error" in r) return r.error;
+    const result = await saveSettings(r.ctx, body.delta);
+    await markStoredSessionSuccess(c.env.CACHE_META, r.session);
+    return c.json({ result, authSource: r.session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "settings save failed");
   }
 });
 
