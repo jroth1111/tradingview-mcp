@@ -105,3 +105,41 @@ node scripts/probes/pine-recovery-exercises.mjs \
 
 Raw outputs go to `probe-output/` and are not committed. Commit only the
 distilled report and script changes.
+
+## Worker-mediated acceptance probes (slices A, C, E, F)
+
+`worker-acceptance-probes.mjs` runs the live acceptance battery against the
+deployed Worker over HMAC. The HMAC client material is read from the macOS
+Keychain (`security find-generic-password -a gwizz -s tradingview-worker-hmac`).
+
+```bash
+# Single probe:
+node scripts/probes/worker-acceptance-probes.mjs slice-a-commission-differential
+
+# Full battery:
+node scripts/probes/worker-acceptance-probes.mjs all
+```
+
+Probes:
+
+- `admin-session-status` — sanity check that the stored TV session is healthy.
+- `slice-a-commission-differential` — runs `/v1/strategy/run` against
+  STD;Supertrend Strategy with `commission_value` 0 and 1, asserts a non-zero
+  `netProfit` delta (proves properties land on the wire).
+- `slice-a-source-only` — runs `/v1/strategy/run` with a minimal `{source}`
+  Pine v5 strategy and confirms a report came back.
+- `slice-a-bars-30000` — runs `/v1/strategy/run` with `bars=30000` and reports
+  whether the request crossed the legacy 20k clamp.
+- `slice-a-strategy-detection` — runs `/v1/strategy/run` against
+  STD;Supertrend Strategy and STD;RSI; asserts the strategy responds with a
+  report and the indicator does not.
+- `slice-c-walkforward` — submits a walkforward job via `/v1/jobs/submit`.
+- `slice-c-matrix` — submits a matrix job (3 symbols × 2 timeframes × 4 params).
+- `slice-e-ohlcv-extract` — submits an `ohlcvExtract` job.
+- `slice-f-sse-replay` — opens `/v1/strategy/replay`, reads the SSE stream,
+  asserts a `done` event arrives within 30s.
+
+The runner expects the deployed Worker at `WORKER_BASE`
+(default `https://tradingview-data.gwizz.workers.dev`) to host current `main`.
+A 404 on slice routes signals the deployed bundle predates the slice landing —
+run `npx wrangler deploy` from `worker/` first.
