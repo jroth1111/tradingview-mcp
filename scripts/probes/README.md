@@ -143,3 +143,52 @@ The runner expects the deployed Worker at `WORKER_BASE`
 (default `https://tradingview-data.gwizz.workers.dev`) to host current `main`.
 A 404 on slice routes signals the deployed bundle predates the slice landing —
 run `npx wrangler deploy` from `worker/` first.
+
+## UOI unauthenticated translate boundary
+
+`uoi-unauth-translate-boundary-probe.mjs` compares no-cookie and
+session-authenticated access for HAR-designated UOI indicators only. It checks
+`versions`, `is_auth_to_get`, `get_script_info`, `get`, and `translate`, then
+writes a redacted summary of statuses, body hashes, source-presence flags, and
+encrypted-artifact segment metadata.
+
+```bash
+node scripts/probes/uoi-unauth-translate-boundary-probe.mjs \
+  --uoi-json probe-output/har-indicator-analysis-2026-05-07T10-57-45-960Z/uoi-indicators.json \
+  --limit 10 \
+  --access 3 \
+  --only-have-access
+```
+
+The script intentionally does not write cookies, session ids, auth tokens,
+response bodies, source text, or encrypted IL values.
+
+`uoi-unauth-runtime-probe.mjs` checks the matching runtime boundary for one
+authorized script by using a no-cookie WebSocket session and
+`unauthorized_user_token`.
+
+```bash
+node scripts/probes/uoi-unauth-runtime-probe.mjs \
+  --id 'PUB;8ec469c9f5ff4879a0f3d5bc3950fd52' \
+  --version 2 \
+  --artifact IL
+```
+
+## UOI unauthenticated translate boundary
+
+`uoi-unauth-translate-boundary-probe.mjs` compares no-cookie and
+session-authenticated access for HAR-designated UOI indicators only. It checks
+`versions`, `is_auth_to_get`, `get_script_info`, `get`, and `translate`, then
+writes a redacted summary of statuses, body hashes, source-presence flags, and
+encrypted-artifact segment metadata.
+
+```bash
+node scripts/probes/uoi-unauth-translate-boundary-probe.mjs \
+  --uoi-json probe-output/har-indicator-analysis-2026-05-07T10-57-45-960Z/uoi-indicators.json \
+  --limit 10 \
+  --access 3 \
+  --only-have-access
+```
+
+The script intentionally does not write cookies, session ids, auth tokens,
+response bodies, source text, or encrypted IL values.
