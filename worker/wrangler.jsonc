@@ -27,6 +27,14 @@
       {
         "name": "STREAM_BRIDGE",
         "class_name": "StreamBridge"
+      },
+      {
+        "name": "BACKTEST_JOB",
+        "class_name": "BacktestJob"
+      },
+      {
+        "name": "QUOTE_STREAM",
+        "class_name": "QuoteStream"
       }
     ]
   },
@@ -65,6 +73,14 @@
     {
       "tag": "v4",
       "new_sqlite_classes": ["StreamBridge"]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["BacktestJob"]
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["QuoteStream"]
     }
   ]
 }

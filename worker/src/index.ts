@@ -95,6 +95,19 @@ import {
   type MetaRecord,
 } from "./cache";
 import { FetchCoordinator } from "./fetch-coordinator";
+import {
+  BACKTEST_JOB_TYPES,
+  type BacktestJobType,
+  buildCanonicalKey,
+  buildJobId,
+  type CanonicalJobInputs,
+} from "./backtest-job-do";
+import {
+  ANALYZE_SYNC_BODY_LIMIT_BYTES,
+  ensureRunnerRegistered,
+  estimateAnalyzeBodySize,
+  runAnalyze,
+} from "./runners/dispatcher";
 import { compilePine, runPine } from "./pine";
 import { runStrategy, optimizeStrategy } from "./strategy";
 import { modifyStudy, runStudyChain } from "./study-chain";
@@ -223,6 +236,17 @@ import {
 } from "./user-prefs";
 import * as wsVerbs from "./ws-verbs";
 import * as wsEvents from "./ws-events";
+import {
+  countActiveForClient,
+  registerStream,
+  releaseStream,
+  touchStream,
+  lookupStream,
+  MAX_STREAMS_PER_HMAC_CLIENT_DEFAULT,
+} from "./quote-stream-registry";
+import {
+  MAX_SYMBOLS_PER_STREAM_DEFAULT as QS_MAX_SYMBOLS_DEFAULT,
+} from "./quote-stream-do";
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
 
@@ -2485,7 +2509,7 @@ app.post("/v1/strategy/replay", async (c) => {
         emit("report", result.report);
         emit("done", {
           phase: "complete",
-          totalTrades: result.report.totalTrades ?? result.trades.length,
+          totalTrades: result.report.total_trades ?? result.trades.length,
           equityPoints: result.equity.length,
           authSource: session.source,
         });
@@ -2512,6 +2536,52 @@ app.post("/v1/strategy/replay", async (c) => {
       "x-accel-buffering": "no",
     },
   });
+});
+
+app.post("/v1/strategy/analyze", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      trades?: number[];
+      equity?: number[];
+      iterations?: number;
+      seed?: number;
+      alpha?: number;
+      periodsPerYear?: number;
+      trialCount?: number;
+      benchmarkReturns?: number[];
+      candidateReturns?: number[][];
+    };
+    const size = estimateAnalyzeBodySize(body);
+    if (size > ANALYZE_SYNC_BODY_LIMIT_BYTES) {
+      return c.json(
+        {
+          error: "payload too large for sync analyze; submit as a job via /v1/jobs/submit with type=analyze",
+          limit_bytes: ANALYZE_SYNC_BODY_LIMIT_BYTES,
+          actual_bytes: size,
+        },
+        413,
+      );
+    }
+    if (!Array.isArray(body?.trades) && !Array.isArray(body?.equity)) {
+      return c.json({ error: "trades or equity required" }, 400);
+    }
+    const out = await runAnalyze({
+      trades: body.trades ?? [],
+      equity: body.equity ?? [],
+      iterations: body.iterations,
+      seed: body.seed,
+      alpha: body.alpha,
+      periodsPerYear: body.periodsPerYear,
+      trialCount: body.trialCount,
+      benchmarkReturns: body.benchmarkReturns,
+      candidateReturns: body.candidateReturns,
+    });
+    return c.json({ result: out.result, durationMs: out.durationMs });
+  } catch (err: any) {
+    return routeError(c, err, "strategy analyze failed");
+  }
 });
 
 app.post("/v1/strategy/optimize", async (c) => {
@@ -4206,6 +4276,148 @@ app.post("/v1/calendar/splits", async (c) => {
   }
 });
 
+// === Slice B: BacktestJob job orchestration (tradingview-e1q) =======
+//
+// `submit` accepts a job description plus a CanonicalJobInputs envelope. We
+// hash that envelope into a canonical key, fold in the optional
+// `idempotencyKey`, look up the resulting jobId in CACHE_META; if absent we
+// allocate a fresh DO instance addressed by jobId and forward submit. All
+// other routes (status, events, result, cancel) just route to the DO
+// addressed by jobId.
+
+const WORKER_VERSION = "slice-b@2026-05-07";
+
+const getBacktestJobNamespace = (env: any) =>
+  env.BACKTEST_JOB as {
+    idFromName: (name: string) => any;
+    get: (id: any) => { fetch: (url: string, init?: RequestInit) => Promise<Response> };
+  };
+
+const getBacktestJobStub = (env: any, jobId: string) => {
+  const ns = getBacktestJobNamespace(env);
+  return ns.get(ns.idFromName(jobId));
+};
+
+interface SubmitBody {
+  type?: string;
+  idempotencyKey?: string;
+  inputs?: CanonicalJobInputs;
+  payload?: Record<string, unknown>;
+}
+
+app.post("/v1/jobs/submit", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  ensureRunnerRegistered();
+
+  let body: SubmitBody;
+  try {
+    body = (await c.req.json()) as SubmitBody;
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+
+  if (!body?.type || !(BACKTEST_JOB_TYPES as readonly string[]).includes(body.type)) {
+    return c.json(
+      { error: `type must be one of ${BACKTEST_JOB_TYPES.join(", ")}` },
+      400,
+    );
+  }
+  if (!body.inputs || typeof body.inputs !== "object") {
+    return c.json({ error: "inputs envelope required for canonical key" }, 400);
+  }
+
+  const inputs: CanonicalJobInputs = {
+    ...body.inputs,
+    workerVersion: WORKER_VERSION,
+  };
+  const canonicalKey = await buildCanonicalKey(inputs);
+  const indexKey = `backtest_job_idx:${body.idempotencyKey ?? "_"}:${canonicalKey}`;
+
+  const existingJobId = await c.env.CACHE_META.get(indexKey);
+  const jobId = existingJobId ?? buildJobId(canonicalKey, body.idempotencyKey);
+
+  const stub = getBacktestJobStub(c.env, jobId);
+  const submitResp = await stub.fetch("https://backtest-job.internal/submit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jobId,
+      type: body.type as BacktestJobType,
+      canonicalKey,
+      idempotencyKey: body.idempotencyKey,
+      workerVersion: WORKER_VERSION,
+      submittedAt: Date.now(),
+      payload: body.payload ?? {},
+    }),
+  });
+
+  if (submitResp.ok && !existingJobId) {
+    await c.env.CACHE_META.put(indexKey, jobId, { expirationTtl: 60 * 60 * 24 * 30 });
+  }
+
+  const submitJson = (await submitResp.json()) as {
+    jobId?: string;
+    deduped?: boolean;
+    status?: string;
+  };
+  return c.json(
+    {
+      jobId: submitJson.jobId ?? jobId,
+      deduped: Boolean(submitJson.deduped) || Boolean(existingJobId),
+      status: submitJson.status ?? "queued",
+      canonicalKey,
+    },
+    submitResp.status as any,
+  );
+});
+
+app.get("/v1/jobs/:jobId/status", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const jobId = c.req.param("jobId");
+  const resp = await getBacktestJobStub(c.env, jobId).fetch(
+    "https://backtest-job.internal/status",
+    { method: "GET" },
+  );
+  return new Response(resp.body, { status: resp.status, headers: resp.headers });
+});
+
+app.get("/v1/jobs/:jobId/events", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const jobId = c.req.param("jobId");
+  const url = new URL(c.req.url);
+  const since = url.searchParams.get("since");
+  const lastEventId = c.req.header("Last-Event-ID");
+  const target = `https://backtest-job.internal/events${since ? `?since=${encodeURIComponent(since)}` : ""}`;
+  const headers: Record<string, string> = { accept: "text/event-stream" };
+  if (lastEventId) headers["Last-Event-ID"] = lastEventId;
+  return getBacktestJobStub(c.env, jobId).fetch(target, { method: "GET", headers });
+});
+
+app.get("/v1/jobs/:jobId/result", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const jobId = c.req.param("jobId");
+  const resp = await getBacktestJobStub(c.env, jobId).fetch(
+    "https://backtest-job.internal/result",
+    { method: "GET" },
+  );
+  return new Response(resp.body, { status: resp.status, headers: resp.headers });
+});
+
+app.post("/v1/jobs/:jobId/cancel", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const jobId = c.req.param("jobId");
+  const resp = await getBacktestJobStub(c.env, jobId).fetch(
+    "https://backtest-job.internal/cancel",
+    { method: "POST" },
+  );
+  return new Response(resp.body, { status: resp.status, headers: resp.headers });
+});
+
 // === P18 stream bridge (tradingview-zkz) =============================
 const forwardToStreamBridge = async (
   c: any,
@@ -4304,6 +4516,167 @@ app.post("/v1/stream/news/poll", async (c) => {
   const tokenOrErr = requireStreamSessionToken(body?.sessionToken ?? null);
   if (typeof tokenOrErr !== "string") return tokenOrErr;
   return forwardToStreamBridge(c, "/poll", { since: body.since, limit: body.limit, channel: "news" }, tokenOrErr);
+});
+
+// === Slice F: local-watchlist real-time streaming (tradingview-1nt) ==
+const QUOTE_STREAM_INTERNAL_URL = "https://quote-stream.internal";
+
+const getQuoteStreamStub = (env: CloudflareBindings, streamId: string) => {
+  const ns = (env as any).QUOTE_STREAM as {
+    idFromName: (name: string) => any;
+    get: (id: any) => { fetch: (url: string, init?: RequestInit) => Promise<Response> };
+  };
+  return ns.get(ns.idFromName(streamId));
+};
+
+const generateStreamId = () =>
+  `qs_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+
+app.post("/v1/quotes/stream/subscribe", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      symbols?: string[];
+      fields?: string[];
+      includeMinuteBars?: boolean;
+      timeframe?: string | number;
+      sessionId?: string;
+      sessionSign?: string;
+      endpoint?: string;
+    };
+    if (!Array.isArray(body?.symbols) || body.symbols.length === 0) {
+      return c.json({ error: "symbols (non-empty array) required" }, 400);
+    }
+    if (body.symbols.length > QS_MAX_SYMBOLS_DEFAULT) {
+      return c.json(
+        {
+          error: "max_symbols_exceeded",
+          limit: QS_MAX_SYMBOLS_DEFAULT,
+          requested: body.symbols.length,
+        },
+        400,
+      );
+    }
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    if (!session.sessionId) {
+      return c.json({ error: "admin session required" }, 401);
+    }
+    const hmacClient = (c.env as any).HMAC_CLIENT_ID as string;
+    const streamId = generateStreamId();
+    const reg = await registerStream({
+      kv: c.env.CACHE_META,
+      hmacClient,
+      streamId,
+    });
+    if (!reg.ok) {
+      return c.json(
+        {
+          error: "quota_exceeded",
+          limit: reg.limit,
+          active: reg.active,
+        },
+        429,
+      );
+    }
+    const stub = getQuoteStreamStub(c.env, streamId);
+    const initResp = await stub.fetch(`${QUOTE_STREAM_INTERNAL_URL}/init`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        streamId,
+        hmacClient,
+        symbols: body.symbols,
+        fields: body.fields,
+        includeMinuteBars: !!body.includeMinuteBars,
+        timeframe: body.timeframe,
+        sessionId: session.sessionId,
+        sessionSign: session.sessionSign,
+        endpoint: body.endpoint,
+      }),
+    });
+    if (!initResp.ok) {
+      await releaseStream(c.env.CACHE_META, streamId);
+      const initBody = await initResp.json().catch(() => ({}));
+      if (initResp.status === 401) {
+        await markAuthFailure(c.env.CACHE_META);
+      }
+      return c.json(initBody, initResp.status as any);
+    }
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    const initBody = (await initResp.json()) as Record<string, unknown>;
+    return c.json({ ...initBody, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "quote stream subscribe failed");
+  }
+});
+
+app.get("/v1/quotes/stream/:id/sse", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const streamId = c.req.param("id");
+  const entry = await lookupStream(c.env.CACHE_META, streamId);
+  if (!entry) return c.json({ error: "stream not found" }, 404);
+  await touchStream(c.env.CACHE_META, streamId);
+  const stub = getQuoteStreamStub(c.env, streamId);
+  const lastEventId = c.req.header("last-event-id");
+  const headers: Record<string, string> = { accept: "text/event-stream" };
+  if (lastEventId) headers["last-event-id"] = lastEventId;
+  const resp = await stub.fetch(`${QUOTE_STREAM_INTERNAL_URL}/sse`, {
+    method: "GET",
+    headers,
+  });
+  return new Response(resp.body, { status: resp.status, headers: resp.headers });
+});
+
+app.post("/v1/quotes/stream/:id/update", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const streamId = c.req.param("id");
+  const entry = await lookupStream(c.env.CACHE_META, streamId);
+  if (!entry) return c.json({ error: "stream not found" }, 404);
+  const body = (await c.req.json().catch(() => ({}))) as {
+    add?: string[];
+    remove?: string[];
+  };
+  await touchStream(c.env.CACHE_META, streamId);
+  const stub = getQuoteStreamStub(c.env, streamId);
+  const resp = await stub.fetch(`${QUOTE_STREAM_INTERNAL_URL}/update`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return new Response(resp.body, { status: resp.status, headers: resp.headers });
+});
+
+app.post("/v1/quotes/stream/:id/close", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const streamId = c.req.param("id");
+  const stub = getQuoteStreamStub(c.env, streamId);
+  const resp = await stub.fetch(`${QUOTE_STREAM_INTERNAL_URL}/close`, { method: "POST" });
+  await releaseStream(c.env.CACHE_META, streamId);
+  return new Response(resp.body, { status: resp.status, headers: resp.headers });
+});
+
+app.get("/v1/quotes/stream/active", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  const hmacClient = (c.env as any).HMAC_CLIENT_ID as string;
+  const reg = await c.env.CACHE_META.get<Record<string, { hmacClient: string; registeredAt: number; lastSeen: number }>>(
+    "quotes:active-streams",
+    { type: "json" },
+  );
+  const all = reg ?? {};
+  const active = countActiveForClient(all, hmacClient);
+  const entries = Object.entries(all)
+    .filter(([, v]) => v.hmacClient === hmacClient)
+    .map(([streamId, v]) => ({ streamId, registeredAt: v.registeredAt, lastSeen: v.lastSeen }));
+  return c.json({ active, limit: MAX_STREAMS_PER_HMAC_CLIENT_DEFAULT, streams: entries });
 });
 
 // === P19 line-tools (tradingview-34p) ================================
@@ -4994,6 +5367,8 @@ export default app;
 export { FetchCoordinator };
 export { ChartSession } from "./chart-session-do";
 export { StreamBridge } from "./stream-do";
+export { BacktestJob } from "./backtest-job-do";
+export { QuoteStream } from "./quote-stream-do";
 
 // Scheduled snapshot (cron)
 export const scheduled: ExportedHandlerScheduledHandler<CloudflareBindings> = async (

@@ -242,6 +242,31 @@ Status legend:
 | POST | `/v1/stream/alerts/poll` | HMAC | live (1000-entry ring buffer; Last-Event-ID resume) |
 | POST | `/v1/stream/news/poll` | HMAC | live |
 
+## Real-time quote/bar streams (Slice F, QuoteStream DO)
+
+Arbitrary client-supplied symbol lists with live `qsd` quote frames and optional minute-bar closes. One DO instance per `streamId`; multiple concurrent streams per HMAC client are supported up to a quota.
+
+| Method | Path | Auth | Status |
+| --- | --- | --- | --- |
+| POST | `/v1/quotes/stream/subscribe` | HMAC + admin session | live (`{symbols[], fields?, includeMinuteBars?, timeframe?}` → `{streamId}`) |
+| GET  | `/v1/quotes/stream/{id}/sse` | HMAC | live (SSE; `Last-Event-ID` resume) |
+| POST | `/v1/quotes/stream/{id}/update` | HMAC | live (`{add?, remove?}` reshape) |
+| POST | `/v1/quotes/stream/{id}/close` | HMAC | live |
+| GET  | `/v1/quotes/stream/active` | HMAC | live (registry view; current count, limit, entries) |
+
+Safety gates:
+- `MAX_SYMBOLS_PER_STREAM` = 100 (subscribe / update with more → 400 `max_symbols_exceeded`)
+- `MAX_STREAMS_PER_HMAC_CLIENT` = 5 concurrent (6th → 429 `quota_exceeded`)
+- `IDLE_STREAM_AUTO_CLOSE` = 5 min after last consumer disconnect (DO alarm closes upstream + lazy KV GC)
+- TV WS auth failure on open → 401, marks stored session blocked
+- Per-symbol coalescing throttle at 250 ms (≤4 SSE events per symbol over 1 s of qsd churn)
+
+SSE event shapes:
+- `event: quote.quote` — `{seq, ts, symbol, fields: {<field>: <value>, ...}}`
+- `event: quote.bar` — `{seq, ts, symbol, bar: {time, open, high, low, close, volume}}`
+- `event: quote.error` — `{seq, ts, reason, data?}` (auth_error, symbol_error, upstream_retry_exhausted)
+- `event: quote.control` — `{seq, ts, reason, data}` (upstream_closed, etc.)
+
 ## Drawing templates (P19)
 
 | Method | Path | Auth | Status |

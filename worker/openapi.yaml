@@ -446,6 +446,12 @@ paths:
     post:
       summary: Sweep strategy parameters in parallel and return per-combo reports plus best.
       responses: { "200": { description: Strategy optimize result. } }
+  /v1/strategy/analyze:
+    post:
+      summary: Run the analyze suite (bootstrap CIs, Monte Carlo, deflated metrics, permutation, SPA, regimes) over an equity curve and trades.
+      responses:
+        "200": { description: Analyze suite result with metrics, defaultRanking (Sortino primary), bootstrap, monteCarlo, deflated, permutation, optional spa and regimes, notes. }
+        "413": { description: Payload too large; submit as a backtest job via /v1/jobs/submit with type=analyze. }
   /v1/study/chain:
     post:
       summary: Run multiple chained studies (study-on-study) in a single chart session.
@@ -718,6 +724,26 @@ paths:
     post:
       summary: Poll the StreamBridge ring buffer for news events since a cursor.
       responses: { "200": { description: Poll the StreamBridge ring buffer for news events since a cursor. } }
+  /v1/quotes/stream/subscribe:
+    post:
+      summary: Subscribe an arbitrary symbol list to live quote/bar SSE (QuoteStream DO).
+      responses: { "200": { description: Subscribe an arbitrary symbol list to live quote/bar SSE (QuoteStream DO). } }
+  /v1/quotes/stream/{id}/sse:
+    get:
+      summary: Open SSE stream for an active quote subscription; supports Last-Event-ID resume.
+      responses: { "200": { description: Open SSE stream for an active quote subscription; supports Last-Event-ID resume. } }
+  /v1/quotes/stream/{id}/update:
+    post:
+      summary: Add or remove symbols from an active quote stream without dropping siblings.
+      responses: { "200": { description: Add or remove symbols from an active quote stream without dropping siblings. } }
+  /v1/quotes/stream/{id}/close:
+    post:
+      summary: Close an active quote stream and release its registry slot.
+      responses: { "200": { description: Close an active quote stream and release its registry slot. } }
+  /v1/quotes/stream/active:
+    get:
+      summary: List quote streams currently registered to the calling HMAC client.
+      responses: { "200": { description: List quote streams currently registered to the calling HMAC client. } }
   /v1/line-tools/tools:
     post:
       summary: List supported drawing tool ids.
@@ -894,3 +920,138 @@ paths:
     post:
       summary: Drop a drawing pointset from the chart session.
       responses: { "200": { description: Pointset removed. } }
+  /v1/jobs/submit:
+    post:
+      summary: Submit an async backtest job (walkforward, cpcv, matrix, optimize-deep, analyze, ohlcvExtract).
+      description: >
+        Submits an async backtest job whose runner is dispatched in a per-job
+        Durable Object. Idempotency: the orchestration shell hashes
+        `{type, inputs}` into a canonical key; a re-submission with the same
+        canonical key plus optional `idempotencyKey` returns the existing
+        jobId with `deduped: true` rather than allocating a new job. Result
+        artefacts land in R2 under `backtest/jobs/<jobId>/result.json`; the
+        SSE stream at `/v1/jobs/{jobId}/events` carries progress updates
+        with Last-Event-ID resume.
+
+        CPCV-specific guidance (`type: "cpcv"`): the runner accepts
+        `mode: "approxSlice" | "exactWindowed"` in `payload`. `approxSlice`
+        does a single full-history TV run per combo and slices equity by bar
+        index — its output includes `approximateFoldMetrics`, a
+        `contamination` block (open-position straddles, var/varip leakage,
+        request.security warmup, warmup-bias folds, compounding artifact),
+        and claim-guard `notes`; downstream consumers MUST NOT report it as
+        "purged CPCV", an unqualified "PBO", or an unqualified "OOS
+        distribution". `exactWindowed` applies purge (drop trades that
+        straddle a fold boundary) and embargo (drop trades within
+        `embargoBars` after the fold) and is the only mode whose `pbo`,
+        `oosSortinoDistribution`, and `oosSharpeDistribution` fields may be
+        used unqualified. The default ranking metric for CPCV is Sortino;
+        Sharpe is reported as a secondary metric.
+
+        OHLCV-specific guidance (`type: "ohlcvExtract"`): pulls deep historical
+        OHLCV across many `(symbol × timeframe)` cells. `payload.selector`
+        accepts `{mode: "symbols", symbols: string[]}` or
+        `{mode: "scanner", scannerFilter: { market, columns, filter?, filter2?,
+        sort?, range? }, maxSymbols?}`. `payload.timeframes` is an array
+        drawn from {1, 3, 5, 15, 30, 60, 120, 240, 1D, 1W, 1M}. Each cell is
+        gzip-compressed JSON-Lines persisted to
+        `backtest/jobs/<jobId>/ohlcv/<symbol>/<tf>.jsonl.gz`; one JSON object
+        per line with keys `t/o/h/l/c/v`. A manifest at
+        `backtest/jobs/<jobId>/manifest.json` lists every cell, its R2 key,
+        bar count, byte size, and any errors / missing cells. Cell-level
+        idempotency: each cell's `(symbol, tf, fromTs, toTs, dataQuality,
+        adjustment, sessionType)` hashes into a KV index entry
+        (`ohlcv_idx:<hash>`); a re-submission whose canonical job key
+        differs but whose individual cell hashes match short-circuits the
+        TV WebSocket call and references the existing R2 key in the new
+        manifest. Concurrency caps at 5 to respect TV's soft rate limit.
+        Parquet output is out of scope for this initial release; the
+        wire format is JSON-Lines until a Workers-runtime-safe Parquet
+        writer is selected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, inputs]
+              properties:
+                type:
+                  type: string
+                  enum: [walkforward, cpcv, matrix, optimize-deep, analyze, ohlcvExtract]
+                idempotencyKey: { type: string }
+                inputs:
+                  type: object
+                  description: Canonical inputs envelope hashed into the job key.
+                payload:
+                  type: object
+                  description: Runner-specific payload; opaque to the orchestration shell.
+      responses:
+        "200":
+          description: Submitted (or deduped) job descriptor.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId: { type: string }
+                  deduped: { type: boolean }
+                  status:
+                    type: string
+                    enum: [queued, running, done, error, cancelled]
+                  canonicalKey: { type: string }
+  /v1/jobs/{jobId}/status:
+    get:
+      summary: Read the current state of a backtest job.
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Job status. }
+        "404": { description: Unknown jobId. }
+  /v1/jobs/{jobId}/events:
+    get:
+      summary: Subscribe to a job's event stream (SSE) with Last-Event-ID resume.
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: since
+          required: false
+          schema: { type: integer, minimum: 0 }
+          description: >
+            Replay events with `seq > since`. If absent and Last-Event-ID is
+            present, the latter is used instead.
+      responses:
+        "200":
+          description: Server-Sent Events stream.
+          content:
+            text/event-stream: {}
+  /v1/jobs/{jobId}/result:
+    get:
+      summary: Fetch the gzip-encoded JSON result of a completed job.
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Gzip-compressed JSON document.
+          content:
+            application/json: {}
+        "409": { description: Job has not transitioned to `done`. }
+  /v1/jobs/{jobId}/cancel:
+    post:
+      summary: Request cooperative cancellation of an in-progress job.
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Job cancellation acknowledged. }
