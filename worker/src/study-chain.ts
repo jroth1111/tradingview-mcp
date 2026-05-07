@@ -30,7 +30,7 @@
 //   - buildInputsDict   (private): we re-derive friendly-input mapping and
 //     source-alias rewriting.
 //   - buildStudyPlots   (private): we re-derive plot extraction from du frames.
-//   - SOURCE_ALIASES, MAX_BATCH_SIZE: values copied verbatim from tradingview.ts.
+//   - SOURCE_ALIASES: values copied verbatim from tradingview.ts.
 
 import {
   runStudy,
@@ -45,8 +45,11 @@ import {
 import { RawWebSocket } from "./tv-raw-socket";
 import {
   TRADINGVIEW_WS_ENDPOINTS,
+  clampBarCount,
   frameTradingViewMessage,
   normalizeTradingViewPayload,
+  type BarLimitMode,
+  type BarLimitPlan,
   type TradingviewEndpoint,
 } from "../../packages/tradingview-core/src";
 
@@ -83,6 +86,8 @@ export interface StudyChainRequest {
   sessionSign?: string;
   endpoint?: TradingviewEndpoint;
   timeoutMs?: number;
+  barLimitMode?: BarLimitMode;
+  barLimitPlan?: BarLimitPlan;
 }
 
 export interface StudyChainResultEntry {
@@ -103,8 +108,6 @@ export interface StudyChainResult {
 }
 
 // === Internal: types & framing copied / re-derived from tradingview.ts ====
-
-const MAX_BATCH_SIZE = 20000;
 
 const SOURCE_ALIASES = new Set([
   "open",
@@ -438,7 +441,11 @@ export const runStudyChain = async (req: StudyChainRequest): Promise<StudyChainR
   if (!req.symbol) throw new Error("symbol required");
 
   const timeframe = validateTimeframe(req.timeframe ?? "60");
-  const bars = Math.max(1, Math.min(req.bars ?? 300, MAX_BATCH_SIZE));
+  const { bars } = clampBarCount(
+    req.bars ?? 300,
+    req.barLimitMode,
+    req.barLimitPlan,
+  );
 
   // Validate spec & assign slots up front. Throws on bad references; this is
   // the only way the chain helper detects spec errors before the WS opens.

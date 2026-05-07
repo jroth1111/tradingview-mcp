@@ -22,8 +22,11 @@ import {
   TIMEFRAME_MAP,
   TRADINGVIEW_WS_ENDPOINTS,
   VALID_TIMEFRAMES,
+  clampBarCount,
   frameTradingViewMessage,
   normalizeTradingViewPayload,
+  type BarLimitMode,
+  type BarLimitPlan,
   type TradingviewEndpoint,
 } from "../../packages/tradingview-core/src";
 import { decodeWSEvent } from "./ws-events";
@@ -38,6 +41,8 @@ export interface CreateChartSessionRequest {
   sessionSign?: string;
   endpoint?: TradingviewEndpoint;
   timeoutMs?: number;
+  barLimitMode?: BarLimitMode;
+  barLimitPlan?: BarLimitPlan;
 }
 
 export interface CreateChartSessionResponse {
@@ -161,8 +166,6 @@ const SOURCE_ALIASES = new Set([
   "ohlc4",
   "volume",
 ]);
-
-const MAX_BATCH_SIZE = 20000;
 
 const generateSessionId = (prefix: string) =>
   `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -561,7 +564,11 @@ export class ChartSession {
     }
 
     const timeframe = validateTimeframe(body.timeframe ?? "60");
-    const bars = Math.max(1, Math.min(body.bars ?? 300, MAX_BATCH_SIZE));
+    const { bars } = clampBarCount(
+      body.bars ?? 300,
+      body.barLimitMode,
+      body.barLimitPlan,
+    );
     const endpoint: TradingviewEndpoint = body.endpoint ?? "prodata";
 
     // Tear down any prior session — /create is the explicit reset point.

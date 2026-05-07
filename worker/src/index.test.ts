@@ -633,9 +633,19 @@ describe("Pine + strategy + study-chain + chart-session (la1, g6v, xu3, 2v6)", (
         studyVersion: "v5",
         plots: [],
       } as any,
-      report: { netProfit: 1234 },
+      report: { net_profit: 1234 },
       trades: [],
       equity: [],
+      wireDiagnostics: {
+        acceptedProperties: [],
+        rejectedProperties: {},
+        enumViolations: [],
+        inputCollisions: [],
+        sourceRewrites: [],
+        symbolRewrites: [],
+        paramAliases: [],
+        wireForm: "conservative-bundle",
+      },
     });
     const body = JSON.stringify({
       symbol: "AAPL",

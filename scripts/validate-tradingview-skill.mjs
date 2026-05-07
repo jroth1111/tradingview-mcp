@@ -2,14 +2,99 @@ import { readFileSync } from "node:fs";
 
 const constants = readFileSync("packages/tradingview-core/src/constants.ts", "utf8");
 const types = readFileSync("packages/tradingview-core/src/types.ts", "utf8");
+const strategyCore = readFileSync("packages/tradingview-core/src/strategy.ts", "utf8");
+const clampBars = readFileSync("packages/tradingview-core/src/clamp-bars.ts", "utf8");
+const coreIndex = readFileSync("packages/tradingview-core/src/index.ts", "utf8");
 const skill = readFileSync("skills/tradingview/SKILL.md", "utf8");
 const auth = readFileSync("skills/tradingview/auth.md", "utf8");
 const rediscovery = readFileSync("skills/tradingview/surface-rediscovery.md", "utf8");
 const workerTradingview = readFileSync("worker/src/tradingview.ts", "utf8");
+const workerStrategy = readFileSync("worker/src/strategy.ts", "utf8");
+const workerStudyChain = readFileSync("worker/src/study-chain.ts", "utf8");
+const workerChartSession = readFileSync("worker/src/chart-session-do.ts", "utf8");
 
 for (const required of ["TRADINGVIEW_WS_ENDPOINTS", "VALID_TIMEFRAMES", "TIMEFRAME_MAP"]) {
   if (!constants.includes(required)) {
     throw new Error(`core constants missing ${required}`);
+  }
+}
+
+for (const required of [
+  "STRATEGY_PROPERTY_KEYS",
+  "STRATEGY_DEFAULT_QTY_TYPES",
+  "STRATEGY_COMMISSION_TYPES",
+  "isStudyStrategy",
+  "isStudyStrategyStub",
+]) {
+  if (!strategyCore.includes(required)) {
+    throw new Error(`core strategy.ts missing ${required}`);
+  }
+}
+
+for (const required of [
+  '"initial_capital"',
+  '"currency"',
+  '"default_qty_value"',
+  '"default_qty_type"',
+  '"pyramiding"',
+  '"commission_value"',
+  '"commission_type"',
+  '"backtest_fill_limits_assumption"',
+  '"slippage"',
+  '"calc_on_order_fills"',
+  '"calc_on_every_tick"',
+  '"margin_long"',
+  '"margin_short"',
+  '"use_bar_magnifier"',
+  '"process_orders_on_close"',
+  '"fill_orders_on_standard_ohlc"',
+]) {
+  if (!strategyCore.includes(required)) {
+    throw new Error(`core strategy.ts missing canonical property key ${required}`);
+  }
+}
+
+for (const required of ['"fixed"', '"cash_per_order"', '"percent_of_equity"']) {
+  if (!strategyCore.includes(required)) {
+    throw new Error(`core strategy.ts missing canonical default_qty_type enum ${required}`);
+  }
+}
+
+for (const required of ['"percent"', '"cash_per_contract"', '"cash_per_order"']) {
+  if (!strategyCore.includes(required)) {
+    throw new Error(`core strategy.ts missing canonical commission_type enum ${required}`);
+  }
+}
+
+for (const required of ["clampBarCount", "BarLimitMode", "BarLimitPlan"]) {
+  if (!clampBars.includes(required)) {
+    throw new Error(`core clamp-bars.ts missing ${required}`);
+  }
+}
+
+for (const required of ['"./strategy"', '"./clamp-bars"']) {
+  if (!coreIndex.includes(required)) {
+    throw new Error(`core index.ts must re-export ${required}`);
+  }
+}
+
+for (const file of [
+  ["worker/src/tradingview.ts", workerTradingview],
+  ["worker/src/study-chain.ts", workerStudyChain],
+  ["worker/src/chart-session-do.ts", workerChartSession],
+]) {
+  const [name, content] = file;
+  if (/\bMAX_BATCH_SIZE\s*=\s*\d+/.test(content)) {
+    throw new Error(`${name} must not redefine MAX_BATCH_SIZE locally; use clampBarCount from core`);
+  }
+  if (!/\bclampBarCount\b/.test(content)) {
+    throw new Error(`${name} must use clampBarCount from packages/tradingview-core/src`);
+  }
+}
+
+for (const required of ["STRATEGY_PROPERTY_KEYS", "STRATEGY_DEFAULT_QTY_TYPES", "STRATEGY_COMMISSION_TYPES"]) {
+  if (!workerStrategy.includes(required)) {
+    throw new Error(`worker/src/strategy.ts must import ${required} from packages/tradingview-core/src`);
   }
 }
 

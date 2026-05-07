@@ -6,16 +6,17 @@ import {
   TIMEFRAME_MAP,
   TRADINGVIEW_WS_ENDPOINTS,
   VALID_TIMEFRAMES,
+  clampBarCount,
   frameTradingViewMessage,
   normalizeTradingViewPayload,
+  type BarLimitMode,
+  type BarLimitPlan,
   type TradingviewEndpoint,
 } from "../../packages/tradingview-core/src";
 import { UpstreamError, toUpstreamError } from "./upstream-error";
 
 export type { Candle } from "../../packages/tradingview-core/src";
 import type { Candle } from "../../packages/tradingview-core/src";
-
-const MAX_BATCH_SIZE = 20000; // aligns with TradingView Premium bar caps
 
 type TradingviewEvent = { name: string; params: any[] };
 type Subscriber = (event: TradingviewEvent) => void;
@@ -37,6 +38,8 @@ export interface CandleRequest {
   timeoutMs?: number;
   debug?: boolean;
   to?: number; // optional end timestamp for the batch
+  barLimitMode?: BarLimitMode;
+  barLimitPlan?: BarLimitPlan;
 }
 
 // Handles Engine.IO / Socket.IO prefixes and returns the segment that contains TradingView netstrings.
@@ -248,7 +251,11 @@ const connect = async (opts: {
 
 export const getCandles = async (req: CandleRequest): Promise<Candle[]> => {
   const timeframe = validateTimeframe(req.timeframe ?? "60");
-  const batchSize = Math.min(req.amount ?? MAX_BATCH_SIZE, MAX_BATCH_SIZE);
+  const { bars: batchSize } = clampBarCount(
+    req.amount,
+    req.barLimitMode,
+    req.barLimitPlan,
+  );
   const chartSession = generateSessionId("cs");
 
   const connection = await connect({
@@ -887,6 +894,14 @@ export interface StudyRequest {
   sessionId?: string;
   sessionSign?: string;
   timeoutMs?: number;
+  // When true, runStudy passes `inputs` through verbatim and skips
+  // buildInputsDict's source/symbol rewrites + paramsByName resolution.
+  // Used by buildStrategyWireInputs which has already pre-shaped the
+  // create_study payload (in_0 envelope, source aliases rewritten inside
+  // the property dict, etc.).
+  inputsPreShaped?: boolean;
+  barLimitMode?: BarLimitMode;
+  barLimitPlan?: BarLimitPlan;
 }
 
 export interface StudyPlot {
@@ -1052,7 +1067,11 @@ export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
   }
 
   const timeframe = validateTimeframe(req.timeframe ?? "60");
-  const bars = Math.max(1, Math.min(req.bars ?? 300, MAX_BATCH_SIZE));
+  const { bars } = clampBarCount(
+    req.bars ?? 300,
+    req.barLimitMode,
+    req.barLimitPlan,
+  );
   const parentSeriesId = req.parentSeriesId ?? "sds_1";
 
   // Resolve the wire id and (best-effort) metainfo for plot/input mapping.
@@ -1069,7 +1088,9 @@ export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
   ]) as [ResolvedWireId, IndicatorMeta | null];
 
   const meta = metaResult;
-  const inputsDict = buildInputsDict(req.inputs, req.params, meta, parentSeriesId);
+  const inputsDict = req.inputsPreShaped
+    ? { ...(req.inputs ?? {}) }
+    : buildInputsDict(req.inputs, req.params, meta, parentSeriesId);
 
   const chartSession = generateSessionId("cs");
   const studySlot = "st1";
@@ -1230,17 +1251,23 @@ export interface BackfillRequest {
   sessionId?: string;
   sessionSign?: string;
   delayMs?: number;
+  barLimitMode?: BarLimitMode;
+  barLimitPlan?: BarLimitPlan;
 }
 
 export const backfillCandles = async (req: BackfillRequest): Promise<Candle[]> => {
   const total = req.total ?? 40000;
-  const chunk = Math.min(total, MAX_BATCH_SIZE);
+  const { bars: perBatch } = clampBarCount(
+    total,
+    req.barLimitMode,
+    req.barLimitPlan,
+  );
   let remaining = total;
   let cursor: number | undefined = undefined;
   const all: Candle[] = [];
 
   while (remaining > 0) {
-    const amount = Math.min(remaining, MAX_BATCH_SIZE);
+    const amount = Math.min(remaining, perBatch);
     // If cursor set, we request up to cursor (exclusive)
     const candles = await getCandles({
       symbol: req.symbol,
@@ -1250,6 +1277,8 @@ export const backfillCandles = async (req: BackfillRequest): Promise<Candle[]> =
       sessionId: req.sessionId,
       sessionSign: req.sessionSign,
       to: cursor,
+      barLimitMode: req.barLimitMode,
+      barLimitPlan: req.barLimitPlan,
     });
     if (!candles.length) break;
     const oldest = candles[candles.length - 1]?.timestamp;
@@ -1831,6 +1860,7 @@ export const getStreamBootstrap = async (
     messages.push(formatWSMessage("quote_add_symbols", [quoteSession, resolveSym]));
     messages.push(formatWSMessage("quote_fast_symbols", [quoteSession, req.symbol]));
     messages.push(formatWSMessage("resolve_symbol", [chartSession, "sds_sym_1", resolveSym]));
+    const { bars: streamBootstrapBars } = clampBarCount(undefined, "chart", "unknown");
     messages.push(
       formatWSMessage("create_series", [
         chartSession,
@@ -1838,7 +1868,7 @@ export const getStreamBootstrap = async (
         "s1",
         "sds_sym_1",
         tf,
-        MAX_BATCH_SIZE,
+        streamBootstrapBars,
         "",
       ]),
     );

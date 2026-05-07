@@ -1,40 +1,44 @@
 // Strategy run + backtest + parameter-sweep helpers.
 //
 // TradingView strategies are Pine scripts dispatched through the same
-// `create_study` WebSocket call as indicators. The wire shape is identical;
-// what differs is that the strategy script emits non-series outputs through
-// `du.params[1][st_slot].ns` — the performance report, the trade list, and the
-// equity curve all ride that channel. `runStudy` already accumulates `ns` into
-// `StudyResult.nonseries`; this module composes runStudy + best-effort parsing
-// of those non-series outputs.
-//
-// Strategy properties (`initial_capital`, `commission_value`, …) are passed as
-// part of the create_study `inputs` dict. The exact upstream key naming for
-// strategy property fields is NOT yet confirmed by a runtime probe — different
-// TradingView builds have used `__pine_property_<name>`, `_strategy_<name>`,
-// or accepted properties as plain top-level entries when the strategy script
-// declares them through `strategy(...)` parameters. Until a probe verifies the
-// canonical wire form, this helper merges the property names as-is at the top
-// level of the inputs dict; callers may pre-shape inputs themselves to override.
+// `create_study` WebSocket call as indicators. The wire shape differs in one
+// material place: strategy properties (`initial_capital`, `commission_value`,
+// `default_qty_type`, …) live inside an `in_0` *dict* envelope alongside the
+// user-input value at slot 0, while user inputs at slot 1+ stay at the top
+// level of the inputs map (per skills/tradingview/reference/strategies.md:91).
+// `runStudy` already accumulates `ns` into `StudyResult.nonseries`; this
+// module composes runStudy + best-effort parsing of those non-series outputs.
 
 import {
+  STRATEGY_COMMISSION_TYPES,
+  STRATEGY_DEFAULT_QTY_TYPES,
+  STRATEGY_PROPERTY_KEYS,
+  type TradingviewEndpoint,
+} from "../../packages/tradingview-core/src";
+import { compilePine } from "./pine";
+import { isAuthToGet } from "./pine-crud";
+import {
+  getIndicatorMeta,
   runStudy,
+  type IndicatorMeta,
   type StudyRequest,
   type StudyResult,
 } from "./tradingview";
-import { isAuthToGet } from "./pine-crud";
-import type { TradingviewEndpoint } from "../../packages/tradingview-core/src";
 
 // ---------- types ----------
+
+export type StrategyDefaultQtyType = "fixed" | "cash_per_order" | "percent_of_equity";
+export type StrategyCommissionType = "percent" | "cash_per_contract" | "cash_per_order";
 
 export interface StrategyProperties {
   initial_capital?: number;
   currency?: string;
   default_qty_value?: number;
-  default_qty_type?: "fixed_units" | "percent_of_equity" | "cash";
+  default_qty_type?: StrategyDefaultQtyType;
   pyramiding?: number;
   commission_value?: number;
-  commission_type?: "percent" | "cash_per_contract" | "cash_per_order";
+  commission_type?: StrategyCommissionType;
+  backtest_fill_limits_assumption?: number;
   slippage?: number;
   calc_on_every_tick?: boolean;
   calc_on_order_fills?: boolean;
@@ -45,38 +49,66 @@ export interface StrategyProperties {
   fill_orders_on_standard_ohlc?: boolean;
 }
 
+// StrategyTrade: pair-aggregated trade record (entry + optional exit).
+//
+// Field naming follows the skill canonical wire vocabulary in
+// skills/tradingview/reference/strategies.md:64-66 (`bar_index`, `time`,
+// `signal`, `qty`, `price`, `profit`, `profit_pct`, `cumulative_profit`,
+// `type`, `comment`, `drawdown`, `runup`). The wire format is one row per
+// fill; this shape pairs entry and exit fills into a single trade record by
+// prefixing time/price/signal with `entry_`/`exit_`. This pair-aggregation
+// is what the walkforward and cpcv runners consume directly.
 export interface StrategyTrade {
   number: number;
   side: "long" | "short";
-  entryTime: number; // unix seconds
-  entryPrice: number;
-  entrySignal?: string;
-  exitTime?: number;
-  exitPrice?: number;
-  exitSignal?: string;
+  entry_time: number; // unix seconds
+  entry_price: number;
+  entry_signal?: string;
+  exit_time?: number;
+  exit_price?: number;
+  exit_signal?: string;
   size: number;
   profit?: number;
-  profitPct?: number;
-  cumProfit?: number;
+  profit_pct?: number;
+  cumulative_profit?: number;
+  drawdown?: number;
+  runup?: number;
+  comment?: string;
 }
 
+// StrategyReport: skill-canonical 27-field strategy report.
+//
+// Field names match skills/tradingview/reference/strategies.md:40-58
+// verbatim. These map directly to TradingView's strategy report tab and
+// drive ranking/optimization logic via `keyof StrategyReport`.
 export interface StrategyReport {
-  netProfit?: number;
-  netProfitPct?: number;
-  grossProfit?: number;
-  grossLoss?: number;
-  totalTrades?: number;
-  winningTrades?: number;
-  losingTrades?: number;
-  winRate?: number; // 0..1
-  profitFactor?: number;
-  maxDrawdown?: number;
-  maxDrawdownPct?: number;
-  sharpeRatio?: number;
-  sortinoRatio?: number;
-  avgTrade?: number;
-  largestWin?: number;
-  largestLoss?: number;
+  gross_profit?: number;
+  net_profit?: number;
+  net_profit_percent?: number;
+  profit_factor?: number;
+  max_drawdown?: number;
+  max_drawdown_percent?: number;
+  max_runup?: number;
+  max_runup_percent?: number;
+  max_intraday_loss?: number;
+  max_cons_loss_days?: number;
+  currency_rate?: number;
+  sharpe_ratio?: number;
+  sortino_ratio?: number;
+  total_trades?: number;
+  winning_trades?: number;
+  losing_trades?: number;
+  even_trades?: number;
+  win_rate?: number; // 0..1
+  avg_trade?: number;
+  avg_winning_trade?: number;
+  avg_losing_trade?: number;
+  largest_winning_trade?: number;
+  largest_losing_trade?: number;
+  buy_hold_return?: number;
+  alpha?: number;
+  beta?: number;
+  ratio_avg_win_avg_loss?: number;
   raw?: any; // original ns payload for debug
 }
 
@@ -86,10 +118,30 @@ export interface StrategyEquityPoint {
   drawdown?: number;
 }
 
+export interface WireDiagnostics {
+  acceptedProperties: string[];
+  rejectedProperties: Record<string, unknown>;
+  enumViolations: Array<{ key: string; value: unknown; allowed: string[] }>;
+  inputCollisions: Array<{
+    key: string;
+    propertyValue: unknown;
+    inputValue: unknown;
+  }>;
+  sourceRewrites: Array<{ id: string; before: string; after: string }>;
+  symbolRewrites: Array<{
+    id: string;
+    before: string;
+    after: { type: "symbol"; value: string };
+  }>;
+  paramAliases: Array<{ name: string; resolvedId: string }>;
+  wireForm: "conservative-bundle";
+}
+
 export interface StrategyRunRequest {
   symbol: string;
   studyId?: string; // PUB;... or USER;... — required if no source
-  source?: string; // raw Pine strategy source — needs pre-compile (see below)
+  source?: string; // raw Pine strategy source (auto-compiled to a fresh PUB id)
+  pineVersion?: string; // optional; defaults to v5 inside compilePine
   properties?: StrategyProperties;
   inputs?: Record<string, any>;
   params?: Record<string, any>;
@@ -105,6 +157,7 @@ export interface StrategyResult {
   report: StrategyReport;
   trades: StrategyTrade[];
   equity: StrategyEquityPoint[];
+  wireDiagnostics: WireDiagnostics;
 }
 
 export interface StrategyOptimizeRequest {
@@ -120,7 +173,7 @@ export interface StrategyOptimizeRequest {
   sessionSign?: string;
   endpoint?: TradingviewEndpoint;
   concurrency?: number; // default 4
-  metric?: keyof StrategyReport; // default "netProfit"
+  metric?: keyof StrategyReport; // default "net_profit"
 }
 
 export interface StrategyOptimizeResult {
@@ -132,35 +185,218 @@ export interface StrategyOptimizeResult {
   best?: { params: Record<string, any>; report: StrategyReport };
 }
 
-// ---------- input/property merging ----------
+// ---------- wire-input normalization ----------
 
-// buildStrategyInputs merges baseInputs with strategy properties, top-level.
-// The exact upstream key names for strategy properties (e.g. `initial_capital`
-// vs `__pine_property_initial_capital`) are not yet verified by a runtime
-// probe. This helper preserves the property key as-is so that:
-//   1. If TradingView accepts top-level keys (via strategy() declaration),
-//      the property propagates correctly.
-//   2. If a different wire encoding is required, callers can pre-shape and
-//      pass the raw form via `inputs` (which takes precedence on conflict).
-// Callers' explicit `inputs` always win over property-derived defaults.
-export const buildStrategyInputs = (
-  baseInputs: Record<string, any> | undefined,
-  properties: StrategyProperties | undefined,
-): Record<string, any> => {
-  const merged: Record<string, any> = {};
-  if (properties) {
-    for (const [key, value] of Object.entries(properties)) {
+const SOURCE_ALIASES = new Set([
+  "open",
+  "high",
+  "low",
+  "close",
+  "hl2",
+  "hlc3",
+  "ohlc4",
+  "volume",
+]);
+
+const emptyDiagnostics = (): WireDiagnostics => ({
+  acceptedProperties: [],
+  rejectedProperties: {},
+  enumViolations: [],
+  inputCollisions: [],
+  sourceRewrites: [],
+  symbolRewrites: [],
+  paramAliases: [],
+  wireForm: "conservative-bundle",
+});
+
+const isPlainObject = (value: unknown): value is Record<string, any> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+interface BuildStrategyWireInputsArgs {
+  rawInputs?: Record<string, any>;
+  paramsByName?: Record<string, any>;
+  properties?: StrategyProperties;
+  meta?: { inputs?: any[] } | null;
+  parentSeriesId?: string;
+}
+
+interface BuildStrategyWireInputsResult {
+  inputs: Record<string, any>;
+  diagnostics: WireDiagnostics;
+}
+
+// buildStrategyWireInputs normalises raw caller inputs + properties + paramsByName
+// into the canonical create_study `inputs` payload for a strategy:
+//   {
+//     in_0: { ...validated_properties, [<slot-0 user input keyed by meta-name>]: ... },
+//     in_1: <slot-1 user input>,
+//     in_2: <slot-2 user input>,
+//     ...
+//   }
+//
+// "Conservative-bundle" wire form: properties + only the slot-0 user input go into
+// the in_0 envelope; subsequent user inputs stay top-level. This matches the
+// literal example in skills/tradingview/reference/strategies.md:91-94. Once the
+// A4 deep-mode probe captures actual TV WS frames we may flip to all-bundle —
+// the diagnostics field tags the assumption so callers can tell.
+//
+// Properties outside STRATEGY_PROPERTY_KEYS are rejected (recorded in
+// diagnostics.rejectedProperties) rather than silently passed to the wire,
+// preventing accidental leakage of indicator-style keys.
+//
+// `default_qty_type` and `commission_type` enums are validated against the
+// canonical sets; bad values land in `enumViolations` and the offending
+// property is dropped (loud failure surface so callers can fix without a
+// silent wire mismatch).
+//
+// If a caller pre-shaped `rawInputs.in_0` as a dict, this function MERGES the
+// validated properties into it; collisions surface as `inputCollisions` (the
+// caller-supplied value wins, but the conflict is recorded).
+export const buildStrategyWireInputs = (
+  args: BuildStrategyWireInputsArgs,
+): BuildStrategyWireInputsResult => {
+  const diagnostics = emptyDiagnostics();
+  const parentSeriesId = args.parentSeriesId ?? "sds_1";
+  const meta = args.meta ?? null;
+  const metaInputs: any[] = Array.isArray(meta?.inputs) ? meta!.inputs! : [];
+
+  // ---- 1. property validation ----
+  const acceptedProps: Record<string, any> = {};
+  if (args.properties) {
+    for (const [key, value] of Object.entries(args.properties)) {
       if (value === undefined) continue;
-      merged[key] = value;
+      if (!STRATEGY_PROPERTY_KEYS.has(key)) {
+        diagnostics.rejectedProperties[key] = value;
+        continue;
+      }
+      if (
+        key === "default_qty_type" &&
+        typeof value === "string" &&
+        !STRATEGY_DEFAULT_QTY_TYPES.has(value)
+      ) {
+        diagnostics.enumViolations.push({
+          key,
+          value,
+          allowed: [...STRATEGY_DEFAULT_QTY_TYPES],
+        });
+        continue;
+      }
+      if (
+        key === "commission_type" &&
+        typeof value === "string" &&
+        !STRATEGY_COMMISSION_TYPES.has(value)
+      ) {
+        diagnostics.enumViolations.push({
+          key,
+          value,
+          allowed: [...STRATEGY_COMMISSION_TYPES],
+        });
+        continue;
+      }
+      acceptedProps[key] = value;
+      diagnostics.acceptedProperties.push(key);
     }
   }
-  if (baseInputs) {
-    for (const [key, value] of Object.entries(baseInputs)) {
-      // Caller-supplied input overrides any property-derived default.
-      merged[key] = value;
+
+  // ---- 2. resolve paramsByName into slot-id-keyed user inputs ----
+  // When meta is available we resolve friendly names → slot ids. Otherwise we
+  // fall back to treating paramsByName keys as slot ids directly (callers
+  // sweeping with `in_1`/`in_2` keys must still flow through). Keys that look
+  // like slot ids (`in_NUMBER`) are always passed through; named keys without
+  // meta are dropped into rejectedProperties so the caller sees the failure.
+  const userInputs: Record<string, any> = {};
+  const SLOT_ID_RE = /^in_\d+$/;
+  if (args.paramsByName) {
+    for (const [name, val] of Object.entries(args.paramsByName)) {
+      if (metaInputs.length > 0) {
+        const found = metaInputs.find(
+          (mi: any) => mi?.name === name || mi?.id === name,
+        );
+        if (found?.id) {
+          diagnostics.paramAliases.push({ name, resolvedId: found.id });
+          userInputs[found.id] = val;
+          continue;
+        }
+      }
+      if (SLOT_ID_RE.test(name)) {
+        userInputs[name] = val;
+      } else {
+        diagnostics.rejectedProperties[`params.${name}`] = val;
+      }
     }
   }
-  return merged;
+
+  // rawInputs (slot-keyed) overlay paramsByName-derived; caller-explicit wins.
+  if (args.rawInputs) {
+    for (const [key, value] of Object.entries(args.rawInputs)) {
+      userInputs[key] = value;
+    }
+  }
+
+  // ---- 3. apply meta-driven source/symbol rewrites on user inputs ----
+  if (metaInputs.length > 0) {
+    for (const mi of metaInputs) {
+      const id = mi?.id as string | undefined;
+      if (!id || !(id in userInputs)) continue;
+      const t = (mi?.type as string) || "";
+      const v = userInputs[id];
+      if (t === "source" && typeof v === "string" && SOURCE_ALIASES.has(v)) {
+        const after = `${parentSeriesId}$${v}`;
+        diagnostics.sourceRewrites.push({ id, before: v, after });
+        userInputs[id] = after;
+      } else if (t === "symbol" && typeof v === "string") {
+        const after = { type: "symbol" as const, value: v };
+        diagnostics.symbolRewrites.push({ id, before: v, after });
+        userInputs[id] = after;
+      }
+    }
+  }
+
+  // ---- 4. compose conservative-bundle wire form ----
+  // Start the in_0 envelope from validated properties.
+  const in0Envelope: Record<string, any> = { ...acceptedProps };
+
+  // If the caller pre-shaped in_0 as a dict, merge that on top with collision
+  // tracking. Caller value wins (caller is opting into the lower-level wire).
+  const slot0Raw = userInputs["in_0"];
+  if (isPlainObject(slot0Raw)) {
+    for (const [k, v] of Object.entries(slot0Raw)) {
+      if (k in in0Envelope && in0Envelope[k] !== v) {
+        diagnostics.inputCollisions.push({
+          key: k,
+          propertyValue: in0Envelope[k],
+          inputValue: v,
+        });
+      }
+      in0Envelope[k] = v;
+    }
+  } else if (slot0Raw !== undefined) {
+    // Primitive slot-0 value: bundle it under the meta-name when known so the
+    // upstream sees a labelled key inside the envelope (per skill example
+    // showing `length: 14` inside in_0). Without meta we fall back to the
+    // literal slot id so the value is never silently dropped.
+    let bundleKey = "in_0";
+    const slot0Meta = metaInputs.find((mi: any) => mi?.id === "in_0");
+    if (slot0Meta?.name && typeof slot0Meta.name === "string") {
+      bundleKey = slot0Meta.name;
+    }
+    if (bundleKey in in0Envelope && in0Envelope[bundleKey] !== slot0Raw) {
+      diagnostics.inputCollisions.push({
+        key: bundleKey,
+        propertyValue: in0Envelope[bundleKey],
+        inputValue: slot0Raw,
+      });
+    }
+    in0Envelope[bundleKey] = slot0Raw;
+  }
+
+  const finalInputs: Record<string, any> = { in_0: in0Envelope };
+  for (const [k, v] of Object.entries(userInputs)) {
+    if (k === "in_0") continue;
+    finalInputs[k] = v;
+  }
+
+  return { inputs: finalInputs, diagnostics };
 };
 
 // ---------- non-series output parsing ----------
@@ -186,47 +422,112 @@ const tryParseJson = (value: any): any => {
   }
 };
 
-// Map a free-form key from upstream (snake_case, camelCase, "Net Profit", etc.)
-// to a canonical StrategyReport field name. Returns undefined when no match.
+// Wire-form aliases → canonical snake_case StrategyReport keys.
+//
+// TradingView's `du.params[*].<slot>.ns` payload varies by Pine version,
+// broker, and locale; observed wire keys include camelCase, dashed,
+// percent-suffixed, and "average"-spelled variants. The alias table maps
+// every observed variant to the canonical skill-spec snake_case name.
+// Keys here are post-normalisation (lowercase, no spaces/dashes) — see
+// `normalizeKey`.
 const REPORT_FIELD_ALIASES: Record<string, keyof StrategyReport> = {
-  netprofit: "netProfit",
-  netprofitvalue: "netProfit",
-  net_profit: "netProfit",
-  netprofitpercent: "netProfitPct",
-  netprofitpct: "netProfitPct",
-  net_profit_percent: "netProfitPct",
-  grossprofit: "grossProfit",
-  gross_profit: "grossProfit",
-  grossloss: "grossLoss",
-  gross_loss: "grossLoss",
-  totaltrades: "totalTrades",
-  total_trades: "totalTrades",
-  numberoftrades: "totalTrades",
-  winningtrades: "winningTrades",
-  number_of_winning_trades: "winningTrades",
-  losingtrades: "losingTrades",
-  number_of_losing_trades: "losingTrades",
-  winrate: "winRate",
-  win_rate: "winRate",
-  percentprofitable: "winRate",
-  percent_profitable: "winRate",
-  profitfactor: "profitFactor",
-  profit_factor: "profitFactor",
-  maxdrawdown: "maxDrawdown",
-  max_drawdown: "maxDrawdown",
-  maxdrawdownpct: "maxDrawdownPct",
-  max_drawdown_percent: "maxDrawdownPct",
-  sharperatio: "sharpeRatio",
-  sharpe_ratio: "sharpeRatio",
-  sortinoratio: "sortinoRatio",
-  sortino_ratio: "sortinoRatio",
-  avgtrade: "avgTrade",
-  avg_trade: "avgTrade",
-  averagetrade: "avgTrade",
-  largestwin: "largestWin",
-  largest_win: "largestWin",
-  largestloss: "largestLoss",
-  largest_loss: "largestLoss",
+  // gross_profit
+  grossprofit: "gross_profit",
+  gross_profit: "gross_profit",
+  // net_profit
+  netprofit: "net_profit",
+  netprofitvalue: "net_profit",
+  net_profit: "net_profit",
+  // net_profit_percent
+  netprofitpercent: "net_profit_percent",
+  netprofitpct: "net_profit_percent",
+  net_profit_percent: "net_profit_percent",
+  // profit_factor
+  profitfactor: "profit_factor",
+  profit_factor: "profit_factor",
+  // max_drawdown
+  maxdrawdown: "max_drawdown",
+  max_drawdown: "max_drawdown",
+  // max_drawdown_percent
+  maxdrawdownpct: "max_drawdown_percent",
+  maxdrawdownpercent: "max_drawdown_percent",
+  max_drawdown_percent: "max_drawdown_percent",
+  // max_runup
+  maxrunup: "max_runup",
+  max_runup: "max_runup",
+  // max_runup_percent
+  maxrunuppct: "max_runup_percent",
+  maxrunuppercent: "max_runup_percent",
+  max_runup_percent: "max_runup_percent",
+  // max_intraday_loss
+  maxintradayloss: "max_intraday_loss",
+  max_intraday_loss: "max_intraday_loss",
+  // max_cons_loss_days
+  maxconslossdays: "max_cons_loss_days",
+  max_cons_loss_days: "max_cons_loss_days",
+  maxconsecutivelossdays: "max_cons_loss_days",
+  // currency_rate
+  currencyrate: "currency_rate",
+  currency_rate: "currency_rate",
+  // sharpe_ratio
+  sharperatio: "sharpe_ratio",
+  sharpe_ratio: "sharpe_ratio",
+  // sortino_ratio
+  sortinoratio: "sortino_ratio",
+  sortino_ratio: "sortino_ratio",
+  // total_trades
+  totaltrades: "total_trades",
+  total_trades: "total_trades",
+  numberoftrades: "total_trades",
+  // winning_trades
+  winningtrades: "winning_trades",
+  winning_trades: "winning_trades",
+  number_of_winning_trades: "winning_trades",
+  // losing_trades
+  losingtrades: "losing_trades",
+  losing_trades: "losing_trades",
+  number_of_losing_trades: "losing_trades",
+  // even_trades
+  eventrades: "even_trades",
+  even_trades: "even_trades",
+  number_of_even_trades: "even_trades",
+  // win_rate
+  winrate: "win_rate",
+  win_rate: "win_rate",
+  percentprofitable: "win_rate",
+  percent_profitable: "win_rate",
+  // avg_trade
+  avgtrade: "avg_trade",
+  avg_trade: "avg_trade",
+  averagetrade: "avg_trade",
+  // avg_winning_trade
+  avgwinningtrade: "avg_winning_trade",
+  avg_winning_trade: "avg_winning_trade",
+  averagewinningtrade: "avg_winning_trade",
+  // avg_losing_trade
+  avglosingtrade: "avg_losing_trade",
+  avg_losing_trade: "avg_losing_trade",
+  averagelosingtrade: "avg_losing_trade",
+  // largest_winning_trade
+  largestwinningtrade: "largest_winning_trade",
+  largest_winning_trade: "largest_winning_trade",
+  largestwin: "largest_winning_trade",
+  largest_win: "largest_winning_trade",
+  // largest_losing_trade
+  largestlosingtrade: "largest_losing_trade",
+  largest_losing_trade: "largest_losing_trade",
+  largestloss: "largest_losing_trade",
+  largest_loss: "largest_losing_trade",
+  // buy_hold_return
+  buyholdreturn: "buy_hold_return",
+  buy_hold_return: "buy_hold_return",
+  // alpha
+  alpha: "alpha",
+  // beta
+  beta: "beta",
+  // ratio_avg_win_avg_loss
+  ratioavgwinavgloss: "ratio_avg_win_avg_loss",
+  ratio_avg_win_avg_loss: "ratio_avg_win_avg_loss",
 };
 
 const normalizeKey = (key: string): string =>
@@ -250,42 +551,60 @@ const extractReportFields = (
   }
 };
 
+// Side classification: skill spec defines `type ∈ {"buy", "sell", "long",
+// "short"}` (line 65). For pair-aggregated StrategyTrade, side semantics
+// collapse to long/short. "buy"/"long" → long; "sell"/"short" → short.
+const inferSide = (raw: any): "long" | "short" => {
+  const sideRaw =
+    raw.side ?? raw.direction ?? raw.type ?? (raw.long === true ? "long" : undefined);
+  if (typeof sideRaw === "string") {
+    const s = sideRaw.toLowerCase();
+    if (s.startsWith("s")) return "short"; // "short" or "sell"
+    if (s === "b" || s === "buy" || s === "long" || s === "l") return "long";
+  }
+  return "long";
+};
+
 const parseTradesArray = (raw: any): StrategyTrade[] => {
   if (!Array.isArray(raw)) return [];
   const trades: StrategyTrade[] = [];
   for (let i = 0; i < raw.length; i += 1) {
     const t = raw[i];
     if (!t || typeof t !== "object") continue;
-    const sideRaw =
-      t.side ?? t.direction ?? t.type ?? (t.long === true ? "long" : undefined);
-    const side: "long" | "short" =
-      typeof sideRaw === "string" && sideRaw.toLowerCase().startsWith("s")
-        ? "short"
-        : "long";
-    const entryTime = toNumber(t.entryTime ?? t.entry_time ?? t.entry?.time);
-    const entryPrice = toNumber(t.entryPrice ?? t.entry_price ?? t.entry?.price);
-    if (entryTime === undefined || entryPrice === undefined) continue;
+    const side = inferSide(t);
+    const entry_time = toNumber(t.entry_time ?? t.entryTime ?? t.entry?.time ?? t.time);
+    const entry_price = toNumber(t.entry_price ?? t.entryPrice ?? t.entry?.price ?? t.price);
+    if (entry_time === undefined || entry_price === undefined) continue;
     const trade: StrategyTrade = {
       number: toNumber(t.number ?? t.id ?? t.idx) ?? i + 1,
       side,
-      entryTime,
-      entryPrice,
+      entry_time,
+      entry_price,
       size: toNumber(t.size ?? t.qty ?? t.contracts) ?? 0,
     };
-    const entrySignal = t.entrySignal ?? t.entry_signal ?? t.entry?.signal;
-    if (typeof entrySignal === "string") trade.entrySignal = entrySignal;
-    const exitTime = toNumber(t.exitTime ?? t.exit_time ?? t.exit?.time);
-    if (exitTime !== undefined) trade.exitTime = exitTime;
-    const exitPrice = toNumber(t.exitPrice ?? t.exit_price ?? t.exit?.price);
-    if (exitPrice !== undefined) trade.exitPrice = exitPrice;
-    const exitSignal = t.exitSignal ?? t.exit_signal ?? t.exit?.signal;
-    if (typeof exitSignal === "string") trade.exitSignal = exitSignal;
+    const entry_signal = t.entry_signal ?? t.entrySignal ?? t.entry?.signal ?? t.signal;
+    if (typeof entry_signal === "string") trade.entry_signal = entry_signal;
+    const exit_time = toNumber(t.exit_time ?? t.exitTime ?? t.exit?.time);
+    if (exit_time !== undefined) trade.exit_time = exit_time;
+    const exit_price = toNumber(t.exit_price ?? t.exitPrice ?? t.exit?.price);
+    if (exit_price !== undefined) trade.exit_price = exit_price;
+    const exit_signal = t.exit_signal ?? t.exitSignal ?? t.exit?.signal;
+    if (typeof exit_signal === "string") trade.exit_signal = exit_signal;
     const profit = toNumber(t.profit ?? t.netProfit ?? t.net_profit);
     if (profit !== undefined) trade.profit = profit;
-    const profitPct = toNumber(t.profitPct ?? t.profit_pct ?? t.profit_percent);
-    if (profitPct !== undefined) trade.profitPct = profitPct;
-    const cumProfit = toNumber(t.cumProfit ?? t.cum_profit ?? t.cumulativeProfit);
-    if (cumProfit !== undefined) trade.cumProfit = cumProfit;
+    const profit_pct = toNumber(
+      t.profit_pct ?? t.profitPct ?? t.profit_percent,
+    );
+    if (profit_pct !== undefined) trade.profit_pct = profit_pct;
+    const cumulative_profit = toNumber(
+      t.cumulative_profit ?? t.cumulativeProfit ?? t.cumProfit ?? t.cum_profit,
+    );
+    if (cumulative_profit !== undefined) trade.cumulative_profit = cumulative_profit;
+    const drawdown = toNumber(t.drawdown ?? t.dd);
+    if (drawdown !== undefined) trade.drawdown = drawdown;
+    const runup = toNumber(t.runup ?? t.run_up);
+    if (runup !== undefined) trade.runup = runup;
+    if (typeof t.comment === "string") trade.comment = t.comment;
     trades.push(trade);
   }
   return trades;
@@ -333,11 +652,8 @@ export const parseStrategyOutputs = (
 
   report.raw = nonseries;
 
-  // Search top-level for report fields first.
   extractReportFields(nonseries, report);
 
-  // `ns.d` / `ns.report` may carry the actual structured payload, often as a
-  // JSON-encoded string when traversing some upstream paths.
   const dPayload = tryParseJson(
     nonseries.d ?? nonseries.report ?? nonseries.data ?? null,
   );
@@ -364,21 +680,23 @@ export const parseStrategyOutputs = (
     );
   }
 
-  // If equity is still empty but trades have cumProfit, derive a thin curve
-  // from trade exits — useful as a debug aid.
   if (
     equity.length === 0 &&
     trades.length > 0 &&
-    trades.every((t) => t.exitTime !== undefined && t.cumProfit !== undefined)
+    trades.every(
+      (t) => t.exit_time !== undefined && t.cumulative_profit !== undefined,
+    )
   ) {
     equity = trades.map((t) => ({
-      ts: t.exitTime as number,
-      equity: t.cumProfit as number,
+      ts: t.exit_time as number,
+      equity: t.cumulative_profit as number,
     }));
   }
 
   return { report, trades, equity };
 };
+
+// ---------- closed-source pre-flight ----------
 
 // Closed-source strategies (`PUB;<id>`) require `is_auth_to_get` to be true on
 // the calling session before TradingView's WebSocket will return du frames for
@@ -397,32 +715,111 @@ const splitVersionFromStudyId = (studyId: string): { id: string; version: string
   return { id: studyId, version: "1.0" };
 };
 
+// ---------- plot-echo helper (closed-source bridge) ----------
+
+interface PlotEchoMeta {
+  plots?: Array<{ id?: string; title?: string; type?: string }>;
+}
+
+export interface BuildPlotEchoSourceOptions {
+  strategyName?: string;
+  overlay?: boolean;
+  echoEntryThreshold?: number; // simple buy-when-source-crosses default = 0
+}
+
+// buildPlotEchoSource emits a tiny Pine v5 strategy that subscribes to each
+// non-`no_series` plot of a closed-source script via `input.source`, then
+// trades on a configurable threshold cross of the first source. Plots whose
+// titles contain shell metacharacters are scrubbed; the helper returns a
+// structurally-valid Pine source that compiles cleanly through pine-facade.
+//
+// The chained source-input wire form is `<parentSeriesId>$<plotTitle>`; that
+// rewrite happens automatically in buildStrategyWireInputs based on the
+// strategy script's metaInfo (the receiver's input ids are typed `source`).
+export const buildPlotEchoSource = (
+  meta: PlotEchoMeta,
+  options: BuildPlotEchoSourceOptions = {},
+): string => {
+  const plots = (meta.plots ?? []).filter(
+    (p) => p?.type !== "no_series" && (p?.id || p?.title),
+  );
+  const strategyName = JSON.stringify(options.strategyName ?? "Plot Echo");
+  const overlay = options.overlay === false ? "false" : "true";
+  const threshold = options.echoEntryThreshold ?? 0;
+
+  const lines: string[] = [];
+  lines.push("//@version=5");
+  lines.push(`strategy(${strategyName}, overlay=${overlay})`);
+
+  if (plots.length === 0) {
+    lines.push("// No public plots on the upstream script — nothing to echo.");
+    lines.push("// Strategy emits no trades; useful only as a probe stub.");
+    return lines.join("\n") + "\n";
+  }
+
+  plots.forEach((p, i) => {
+    const title = (p.title ?? p.id ?? `plot_${i}`).replace(/[\\"]/g, "");
+    const safeTitle = JSON.stringify(title.length > 0 ? title : `plot_${i}`);
+    lines.push(`src${i + 1} = input.source(close, ${safeTitle})`);
+  });
+
+  lines.push("");
+  lines.push(`longCondition = ta.crossover(src1, ${threshold})`);
+  lines.push(`shortCondition = ta.crossunder(src1, ${threshold})`);
+  lines.push('if longCondition');
+  lines.push('    strategy.entry("Long", strategy.long)');
+  lines.push('if shortCondition');
+  lines.push('    strategy.entry("Short", strategy.short)');
+
+  return lines.join("\n") + "\n";
+};
+
 // ---------- runStrategy ----------
 
 export const runStrategy = async (
   req: StrategyRunRequest,
 ): Promise<StrategyResult> => {
-  if (req.source && !req.studyId) {
-    // Pine compile -> strategy run integration belongs to the Pine module.
-    // Until that wiring lands, callers must pre-compile and pass the resulting
-    // PUB/USER studyId here.
-    throw new Error(
-      "source path requires pre-compile via compilePine; pass studyId instead",
-    );
-  }
-  if (!req.studyId) {
-    throw new Error("studyId required");
-  }
   if (!req.symbol) {
     throw new Error("symbol required");
   }
+  if (!req.studyId && !req.source) {
+    throw new Error("studyId or source required");
+  }
 
+  // ---- compile path: source -> studyId via pine-facade ----
+  let resolvedStudyId = req.studyId;
+  if (!resolvedStudyId && req.source) {
+    const compile = await compilePine({
+      source: req.source,
+      version: req.pineVersion,
+      sessionId: req.sessionId,
+      sessionSign: req.sessionSign,
+    });
+    if (!compile.success) {
+      const msg = compile.errors[0]?.message ?? "pine compile failed";
+      const err: any = new Error(`pine compile failed: ${msg}`);
+      err.compile = compile;
+      err.category = "validation";
+      throw err;
+    }
+    if (!compile.pineId) {
+      const err: any = new Error("pine compile did not return a pineId");
+      err.compile = compile;
+      throw err;
+    }
+    resolvedStudyId = compile.pineId;
+  }
+  if (!resolvedStudyId) {
+    throw new Error("studyId required");
+  }
+
+  // ---- closed-source pre-flight ----
   if (
     req.studyId &&
     req.sessionId &&
-    looksLikeClosedSourcePineId(req.studyId)
+    looksLikeClosedSourcePineId(resolvedStudyId)
   ) {
-    const { id, version } = splitVersionFromStudyId(req.studyId);
+    const { id, version } = splitVersionFromStudyId(resolvedStudyId);
     const auth = await isAuthToGet(
       { sessionId: req.sessionId, sessionSign: req.sessionSign },
       id,
@@ -439,13 +836,34 @@ export const runStrategy = async (
     }
   }
 
-  const inputs = buildStrategyInputs(req.inputs, req.properties);
+  // ---- fetch metaInfo so the wire normaliser can apply source/symbol rewrites ----
+  let meta: IndicatorMeta | null = null;
+  try {
+    meta = await getIndicatorMeta({
+      id: resolvedStudyId.split("@")[0],
+      sessionId: req.sessionId,
+      sessionSign: req.sessionSign,
+    });
+  } catch {
+    // Tolerate metaInfo lookup failures: paramsByName resolution and meta-driven
+    // source/symbol rewrites are skipped, but the run can still proceed when
+    // callers pass slot-keyed rawInputs directly.
+    meta = null;
+  }
+
+  const { inputs, diagnostics } = buildStrategyWireInputs({
+    rawInputs: req.inputs,
+    paramsByName: req.params,
+    properties: req.properties,
+    meta,
+    parentSeriesId: "sds_1",
+  });
 
   const studyReq: StudyRequest = {
     symbol: req.symbol,
-    studyId: req.studyId,
+    studyId: resolvedStudyId,
     inputs,
-    params: req.params,
+    inputsPreShaped: true,
     timeframe: req.timeframe,
     bars: req.bars,
     sessionId: req.sessionId,
@@ -456,7 +874,7 @@ export const runStrategy = async (
   const studyResult = await runStudy(studyReq);
   const { report, trades, equity } = parseStrategyOutputs(studyResult.nonseries);
 
-  return { studyResult, report, trades, equity };
+  return { studyResult, report, trades, equity, wireDiagnostics: diagnostics };
 };
 
 // ---------- cartesian product + concurrency limiter ----------
@@ -466,7 +884,6 @@ export const cartesianProduct = <T>(
 ): Array<Record<string, T>> => {
   const keys = Object.keys(matrix);
   if (keys.length === 0) return [{}];
-  // Empty array on any dimension collapses the product to zero combos.
   if (keys.some((k) => !Array.isArray(matrix[k]) || matrix[k].length === 0)) {
     return [];
   }
@@ -483,8 +900,6 @@ export const cartesianProduct = <T>(
   return combos;
 };
 
-// Run a fixed-concurrency worker pool over `items`. Maintains input order in
-// the returned array even when individual tasks complete out of order.
 const runWithConcurrency = async <I, O>(
   items: I[],
   limit: number,
@@ -524,7 +939,7 @@ export const optimizeStrategy = async (
 
   const combos = cartesianProduct(req.sweep);
   const concurrency = Math.max(1, req.concurrency ?? 4);
-  const metric: keyof StrategyReport = req.metric ?? "netProfit";
+  const metric: keyof StrategyReport = req.metric ?? "net_profit";
 
   const results = await runWithConcurrency(combos, concurrency, async (combo) => {
     const mergedParams = { ...(req.baseParams ?? {}), ...combo };

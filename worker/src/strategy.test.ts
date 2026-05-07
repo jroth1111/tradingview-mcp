@@ -1,14 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
-import * as tv from "./tradingview";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import * as pine from "./pine";
 import * as pineCrud from "./pine-crud";
-import type { StudyResult } from "./tradingview";
 import {
-  buildStrategyInputs,
+  buildPlotEchoSource,
+  buildStrategyWireInputs,
   cartesianProduct,
   optimizeStrategy,
   parseStrategyOutputs,
   runStrategy,
 } from "./strategy";
+import * as tv from "./tradingview";
+import type { StudyResult } from "./tradingview";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const makeStudyResult = (
   nonseries: Record<string, any> | undefined,
@@ -23,65 +30,218 @@ const makeStudyResult = (
   nonseries,
 });
 
-describe("buildStrategyInputs", () => {
-  it("merges strategy properties at the top level alongside base inputs", () => {
-    const merged = buildStrategyInputs(
-      { in_0: 14, in_1: "close" },
-      {
+const mockNoMeta = () =>
+  vi.spyOn(tv, "getIndicatorMeta").mockRejectedValue(new Error("no meta in test"));
+
+describe("buildStrategyWireInputs", () => {
+  it("bundles validated properties into the in_0 envelope and tags wireForm", () => {
+    const out = buildStrategyWireInputs({
+      properties: {
         initial_capital: 100000,
         commission_value: 0.05,
         commission_type: "percent",
         pyramiding: 2,
       },
-    );
-    expect(merged).toEqual({
-      in_0: 14,
-      in_1: "close",
+    });
+    expect(out.inputs.in_0).toEqual({
       initial_capital: 100000,
       commission_value: 0.05,
       commission_type: "percent",
       pyramiding: 2,
     });
-  });
-
-  it("preserves exact strategy property key names (no transformation)", () => {
-    const merged = buildStrategyInputs(undefined, {
-      default_qty_type: "percent_of_equity",
-      default_qty_value: 25,
-      use_bar_magnifier: true,
-    });
-    // Keys must be the literal property names; no prefix is added.
-    expect(Object.keys(merged).sort()).toEqual([
-      "default_qty_type",
-      "default_qty_value",
-      "use_bar_magnifier",
+    expect(out.diagnostics.wireForm).toBe("conservative-bundle");
+    expect(out.diagnostics.acceptedProperties.sort()).toEqual([
+      "commission_type",
+      "commission_value",
+      "initial_capital",
+      "pyramiding",
     ]);
-    expect(merged.default_qty_type).toBe("percent_of_equity");
-    expect(merged.use_bar_magnifier).toBe(true);
   });
 
-  it("lets caller-supplied inputs override property-derived defaults", () => {
-    const merged = buildStrategyInputs(
-      { initial_capital: 250000 },
-      { initial_capital: 100000 },
-    );
-    expect(merged.initial_capital).toBe(250000);
-  });
-
-  it("skips undefined property values", () => {
-    const merged = buildStrategyInputs(
-      {},
-      {
+  it("rejects unknown property keys into diagnostics.rejectedProperties", () => {
+    const out = buildStrategyWireInputs({
+      properties: {
         initial_capital: 100000,
-        commission_value: undefined,
-        pyramiding: undefined,
+        // @ts-expect-error — testing the runtime guard rejects unknown keys
+        bogus_legacy_key: 42,
       },
-    );
-    expect(merged).toEqual({ initial_capital: 100000 });
+    });
+    expect(out.inputs.in_0).toEqual({ initial_capital: 100000 });
+    expect(out.diagnostics.rejectedProperties).toEqual({ bogus_legacy_key: 42 });
   });
 
-  it("returns an empty object when no inputs or properties are provided", () => {
-    expect(buildStrategyInputs(undefined, undefined)).toEqual({});
+  it("flags bad default_qty_type enum values and drops the property", () => {
+    const out = buildStrategyWireInputs({
+      properties: {
+        initial_capital: 100000,
+        // @ts-expect-error — old "fixed_units" value is no longer canonical
+        default_qty_type: "fixed_units",
+      },
+    });
+    expect(out.inputs.in_0).toEqual({ initial_capital: 100000 });
+    expect(out.diagnostics.enumViolations).toEqual([
+      {
+        key: "default_qty_type",
+        value: "fixed_units",
+        allowed: ["fixed", "cash_per_order", "percent_of_equity"],
+      },
+    ]);
+  });
+
+  it("flags bad commission_type enum values and drops the property", () => {
+    const out = buildStrategyWireInputs({
+      properties: {
+        // @ts-expect-error — invalid enum
+        commission_type: "absolute",
+      },
+    });
+    expect(out.inputs.in_0).toEqual({});
+    expect(out.diagnostics.enumViolations).toHaveLength(1);
+    expect(out.diagnostics.enumViolations[0].key).toBe("commission_type");
+  });
+
+  it("keeps slot-1+ user inputs at the top level (conservative-bundle)", () => {
+    const out = buildStrategyWireInputs({
+      properties: { initial_capital: 50000 },
+      rawInputs: { in_0: 14, in_1: 20, in_2: "RSI" },
+    });
+    expect(out.inputs.in_1).toBe(20);
+    expect(out.inputs.in_2).toBe("RSI");
+    // in_0 is bundled (slot-0 user value tucked inside the envelope using the
+    // literal slot id when no meta-name is available).
+    expect(out.inputs.in_0).toEqual({ initial_capital: 50000, in_0: 14 });
+  });
+
+  it("uses the meta-name for the slot-0 key when metaInfo is available", () => {
+    const meta = {
+      inputs: [
+        { id: "in_0", name: "Length", type: "integer" },
+        { id: "in_1", name: "ATR Length", type: "integer" },
+      ],
+    };
+    const out = buildStrategyWireInputs({
+      properties: { initial_capital: 50000 },
+      rawInputs: { in_0: 14, in_1: 20 },
+      meta,
+    });
+    expect(out.inputs.in_0).toEqual({ initial_capital: 50000, Length: 14 });
+    expect(out.inputs.in_1).toBe(20);
+  });
+
+  it("merges a caller-pre-shaped in_0 dict with property-derived envelope", () => {
+    const out = buildStrategyWireInputs({
+      properties: { initial_capital: 50000, commission_value: 0.1 },
+      rawInputs: { in_0: { customLevel: 1.5 } },
+    });
+    expect(out.inputs.in_0).toEqual({
+      initial_capital: 50000,
+      commission_value: 0.1,
+      customLevel: 1.5,
+    });
+  });
+
+  it("records collision when caller-pre-shaped in_0 overrides a property", () => {
+    const out = buildStrategyWireInputs({
+      properties: { initial_capital: 50000 },
+      rawInputs: { in_0: { initial_capital: 250000 } },
+    });
+    expect(out.inputs.in_0).toEqual({ initial_capital: 250000 });
+    expect(out.diagnostics.inputCollisions).toEqual([
+      { key: "initial_capital", propertyValue: 50000, inputValue: 250000 },
+    ]);
+  });
+
+  it("resolves paramsByName via meta to slot ids", () => {
+    const meta = {
+      inputs: [
+        { id: "in_0", name: "Length", type: "integer" },
+        { id: "in_1", name: "Source", type: "source" },
+      ],
+    };
+    const out = buildStrategyWireInputs({
+      paramsByName: { Length: 21, Source: "close" },
+      meta,
+    });
+    expect(out.inputs.in_0).toEqual({ Length: 21 });
+    expect(out.inputs.in_1).toBe("sds_1$close");
+    expect(out.diagnostics.paramAliases.sort((a, b) => a.name.localeCompare(b.name)))
+      .toEqual([
+        { name: "Length", resolvedId: "in_0" },
+        { name: "Source", resolvedId: "in_1" },
+      ]);
+  });
+
+  it("rewrites source-typed inputs using the parent series id", () => {
+    const meta = {
+      inputs: [
+        { id: "in_0", name: "Length", type: "integer" },
+        { id: "in_1", name: "Source", type: "source" },
+      ],
+    };
+    const out = buildStrategyWireInputs({
+      rawInputs: { in_0: 14, in_1: "hl2" },
+      meta,
+    });
+    expect(out.inputs.in_1).toBe("sds_1$hl2");
+    expect(out.diagnostics.sourceRewrites).toEqual([
+      { id: "in_1", before: "hl2", after: "sds_1$hl2" },
+    ]);
+  });
+
+  it("wraps symbol-typed inputs as {type:'symbol', value}", () => {
+    const meta = {
+      inputs: [
+        { id: "in_0", name: "Length", type: "integer" },
+        { id: "in_1", name: "Compare", type: "symbol" },
+      ],
+    };
+    const out = buildStrategyWireInputs({
+      rawInputs: { in_0: 14, in_1: "NASDAQ:MSFT" },
+      meta,
+    });
+    expect(out.inputs.in_1).toEqual({ type: "symbol", value: "NASDAQ:MSFT" });
+    expect(out.diagnostics.symbolRewrites).toEqual([
+      {
+        id: "in_1",
+        before: "NASDAQ:MSFT",
+        after: { type: "symbol", value: "NASDAQ:MSFT" },
+      },
+    ]);
+  });
+
+  it("returns an empty bundle when no inputs or properties are provided", () => {
+    const out = buildStrategyWireInputs({});
+    expect(out.inputs).toEqual({ in_0: {} });
+  });
+});
+
+describe("buildPlotEchoSource", () => {
+  it("emits a Pine v5 strategy with one input.source per public plot", () => {
+    const src = buildPlotEchoSource({
+      plots: [
+        { id: "plot_0", title: "Buy Signal", type: "shapes" },
+        { id: "plot_1", title: "Sell Signal", type: "shapes" },
+        { id: "plot_2", title: "internal", type: "no_series" }, // filtered
+      ],
+    });
+    expect(src).toContain("//@version=5");
+    expect(src).toContain('strategy("Plot Echo", overlay=true)');
+    expect(src).toContain('src1 = input.source(close, "Buy Signal")');
+    expect(src).toContain('src2 = input.source(close, "Sell Signal")');
+    expect(src).not.toContain("internal");
+  });
+
+  it("scrubs quote characters from plot titles", () => {
+    const src = buildPlotEchoSource({
+      plots: [{ id: "plot_0", title: 'tricky"name', type: "line" }],
+    });
+    expect(src).toContain('src1 = input.source(close, "trickyname")');
+  });
+
+  it("falls back gracefully when no plots are public", () => {
+    const src = buildPlotEchoSource({ plots: [] });
+    expect(src).toContain("No public plots");
+    expect(src).toContain("strategy(");
   });
 });
 
@@ -95,41 +255,54 @@ describe("parseStrategyOutputs", () => {
 
   it("parses a representative ns payload with report, trades, and equity", () => {
     const ns = {
-      netProfit: 12345.6,
+      net_profit: 12345.6,
       net_profit_percent: 12.34,
-      grossProfit: 20000,
-      grossLoss: -7654.4,
-      totalTrades: 10,
-      winningTrades: 6,
-      losingTrades: 4,
-      winRate: 0.6,
-      profitFactor: 2.61,
-      maxDrawdown: 1500.5,
+      gross_profit: 20000,
+      profit_factor: 2.61,
+      total_trades: 10,
+      winning_trades: 6,
+      losing_trades: 4,
+      even_trades: 0,
+      win_rate: 0.6,
+      max_drawdown: 1500.5,
       max_drawdown_percent: 1.5,
+      max_runup: 800,
+      max_runup_percent: 0.8,
       sharpe_ratio: 1.42,
+      sortino_ratio: 1.95,
+      avg_trade: 50,
+      avg_winning_trade: 200,
+      avg_losing_trade: -100,
+      largest_winning_trade: 500,
+      largest_losing_trade: -200,
+      buy_hold_return: 0.05,
+      alpha: 0.01,
+      beta: 0.9,
+      ratio_avg_win_avg_loss: 2,
+      currency_rate: 1,
       trades: [
         {
           number: 1,
           side: "long",
-          entryTime: 1_700_000_000,
-          entryPrice: 100,
+          entry_time: 1_700_000_000,
+          entry_price: 100,
           size: 1,
-          exitTime: 1_700_003_600,
-          exitPrice: 110,
+          exit_time: 1_700_003_600,
+          exit_price: 110,
           profit: 10,
-          profitPct: 10,
-          cumProfit: 10,
+          profit_pct: 10,
+          cumulative_profit: 10,
         },
         {
           number: 2,
           side: "short",
-          entryTime: 1_700_007_200,
-          entryPrice: 110,
+          entry_time: 1_700_007_200,
+          entry_price: 110,
           size: 1,
-          exitTime: 1_700_010_800,
-          exitPrice: 105,
+          exit_time: 1_700_010_800,
+          exit_price: 105,
           profit: 5,
-          cumProfit: 15,
+          cumulative_profit: 15,
         },
       ],
       equity: [
@@ -139,31 +312,44 @@ describe("parseStrategyOutputs", () => {
       ],
     };
     const out = parseStrategyOutputs(ns);
-    expect(out.report.netProfit).toBe(12345.6);
-    expect(out.report.netProfitPct).toBe(12.34);
-    expect(out.report.grossProfit).toBe(20000);
-    expect(out.report.grossLoss).toBe(-7654.4);
-    expect(out.report.totalTrades).toBe(10);
-    expect(out.report.winningTrades).toBe(6);
-    expect(out.report.losingTrades).toBe(4);
-    expect(out.report.winRate).toBe(0.6);
-    expect(out.report.profitFactor).toBe(2.61);
-    expect(out.report.maxDrawdown).toBe(1500.5);
-    expect(out.report.maxDrawdownPct).toBe(1.5);
-    expect(out.report.sharpeRatio).toBe(1.42);
+    expect(out.report.net_profit).toBe(12345.6);
+    expect(out.report.net_profit_percent).toBe(12.34);
+    expect(out.report.gross_profit).toBe(20000);
+    expect(out.report.total_trades).toBe(10);
+    expect(out.report.winning_trades).toBe(6);
+    expect(out.report.losing_trades).toBe(4);
+    expect(out.report.even_trades).toBe(0);
+    expect(out.report.win_rate).toBe(0.6);
+    expect(out.report.profit_factor).toBe(2.61);
+    expect(out.report.max_drawdown).toBe(1500.5);
+    expect(out.report.max_drawdown_percent).toBe(1.5);
+    expect(out.report.max_runup).toBe(800);
+    expect(out.report.max_runup_percent).toBe(0.8);
+    expect(out.report.sharpe_ratio).toBe(1.42);
+    expect(out.report.sortino_ratio).toBe(1.95);
+    expect(out.report.avg_trade).toBe(50);
+    expect(out.report.avg_winning_trade).toBe(200);
+    expect(out.report.avg_losing_trade).toBe(-100);
+    expect(out.report.largest_winning_trade).toBe(500);
+    expect(out.report.largest_losing_trade).toBe(-200);
+    expect(out.report.buy_hold_return).toBe(0.05);
+    expect(out.report.alpha).toBe(0.01);
+    expect(out.report.beta).toBe(0.9);
+    expect(out.report.ratio_avg_win_avg_loss).toBe(2);
+    expect(out.report.currency_rate).toBe(1);
     expect(out.report.raw).toBe(ns);
 
     expect(out.trades).toHaveLength(2);
     expect(out.trades[0]).toMatchObject({
       number: 1,
       side: "long",
-      entryTime: 1_700_000_000,
-      entryPrice: 100,
-      exitTime: 1_700_003_600,
-      exitPrice: 110,
+      entry_time: 1_700_000_000,
+      entry_price: 100,
+      exit_time: 1_700_003_600,
+      exit_price: 110,
       profit: 10,
-      profitPct: 10,
-      cumProfit: 10,
+      profit_pct: 10,
+      cumulative_profit: 10,
     });
     expect(out.trades[1].side).toBe("short");
 
@@ -176,24 +362,60 @@ describe("parseStrategyOutputs", () => {
     });
   });
 
+  it("preserves camelCase wire-form aliases for backwards-compat parsing", () => {
+    // TradingView upstreams emit camelCase variants in some Pine versions.
+    // Aliases must continue to parse into canonical snake_case fields.
+    const ns = {
+      netProfit: 100,
+      grossProfit: 150,
+      maxDrawdown: 50,
+      maxDrawdownPct: 5,
+      sharpeRatio: 1.0,
+      sortinoRatio: 1.5,
+      profitFactor: 3,
+      totalTrades: 5,
+      winningTrades: 3,
+      losingTrades: 2,
+      winRate: 0.6,
+      avgTrade: 20,
+      largestWin: 50,
+      largestLoss: -10,
+    };
+    const out = parseStrategyOutputs(ns);
+    expect(out.report.net_profit).toBe(100);
+    expect(out.report.gross_profit).toBe(150);
+    expect(out.report.max_drawdown).toBe(50);
+    expect(out.report.max_drawdown_percent).toBe(5);
+    expect(out.report.sharpe_ratio).toBe(1.0);
+    expect(out.report.sortino_ratio).toBe(1.5);
+    expect(out.report.profit_factor).toBe(3);
+    expect(out.report.total_trades).toBe(5);
+    expect(out.report.winning_trades).toBe(3);
+    expect(out.report.losing_trades).toBe(2);
+    expect(out.report.win_rate).toBe(0.6);
+    expect(out.report.avg_trade).toBe(20);
+    expect(out.report.largest_winning_trade).toBe(50);
+    expect(out.report.largest_losing_trade).toBe(-10);
+  });
+
   it("parses ns.d when it is a JSON-encoded string", () => {
     const inner = {
-      netProfit: 42,
-      winRate: 0.5,
+      net_profit: 42,
+      win_rate: 0.5,
       trades: [
         {
           number: 1,
           side: "long",
-          entryTime: 1_700_000_000,
-          entryPrice: 50,
+          entry_time: 1_700_000_000,
+          entry_price: 50,
           size: 1,
         },
       ],
     };
     const ns = { d: JSON.stringify(inner) };
     const out = parseStrategyOutputs(ns);
-    expect(out.report.netProfit).toBe(42);
-    expect(out.report.winRate).toBe(0.5);
+    expect(out.report.net_profit).toBe(42);
+    expect(out.report.win_rate).toBe(0.5);
     expect(out.trades).toHaveLength(1);
   });
 
@@ -203,22 +425,22 @@ describe("parseStrategyOutputs", () => {
         {
           number: 1,
           side: "long",
-          entryTime: 1,
-          entryPrice: 100,
+          entry_time: 1,
+          entry_price: 100,
           size: 1,
-          exitTime: 2,
-          exitPrice: 110,
-          cumProfit: 10,
+          exit_time: 2,
+          exit_price: 110,
+          cumulative_profit: 10,
         },
         {
           number: 2,
           side: "long",
-          entryTime: 3,
-          entryPrice: 110,
+          entry_time: 3,
+          entry_price: 110,
           size: 1,
-          exitTime: 4,
-          exitPrice: 115,
-          cumProfit: 15,
+          exit_time: 4,
+          exit_price: 115,
+          cumulative_profit: 15,
         },
       ],
     };
@@ -265,17 +487,18 @@ describe("cartesianProduct", () => {
 });
 
 describe("runStrategy", () => {
-  it("calls runStudy with merged inputs and returns a parsed result", async () => {
-    const spy = vi.spyOn(tv, "runStudy").mockResolvedValueOnce(
+  it("calls runStudy with the in_0 envelope, inputsPreShaped, and parses the result", async () => {
+    const metaSpy = mockNoMeta();
+    const runSpy = vi.spyOn(tv, "runStudy").mockResolvedValueOnce(
       makeStudyResult({
-        netProfit: 500,
-        winRate: 0.7,
+        net_profit: 500,
+        win_rate: 0.7,
         trades: [
           {
             number: 1,
             side: "long",
-            entryTime: 1_700_000_000,
-            entryPrice: 100,
+            entry_time: 1_700_000_000,
+            entry_price: 100,
             size: 1,
           },
         ],
@@ -285,47 +508,111 @@ describe("runStrategy", () => {
     const result = await runStrategy({
       symbol: "NASDAQ:AAPL",
       studyId: "PUB;test",
-      properties: { initial_capital: 50000 },
-      inputs: { in_0: 14 },
-      params: { length: 20 },
+      properties: {
+        initial_capital: 50000,
+        default_qty_type: "percent_of_equity",
+        default_qty_value: 10,
+      },
+      inputs: { in_1: 20 },
       timeframe: "1D",
       bars: 500,
     });
 
-    expect(spy).toHaveBeenCalledTimes(1);
-    const arg = spy.mock.calls[0][0];
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    const arg = runSpy.mock.calls[0][0];
     expect(arg.symbol).toBe("NASDAQ:AAPL");
     expect(arg.studyId).toBe("PUB;test");
-    expect(arg.inputs).toEqual({ in_0: 14, initial_capital: 50000 });
-    expect(arg.params).toEqual({ length: 20 });
+    expect(arg.inputsPreShaped).toBe(true);
+    expect(arg.inputs).toEqual({
+      in_0: {
+        initial_capital: 50000,
+        default_qty_type: "percent_of_equity",
+        default_qty_value: 10,
+      },
+      in_1: 20,
+    });
     expect(arg.timeframe).toBe("1D");
     expect(arg.bars).toBe(500);
 
-    expect(result.report.netProfit).toBe(500);
-    expect(result.report.winRate).toBe(0.7);
+    expect(result.report.net_profit).toBe(500);
+    expect(result.report.win_rate).toBe(0.7);
     expect(result.trades).toHaveLength(1);
     expect(result.studyResult.studyId).toBe("PUB;test");
+    expect(result.wireDiagnostics.acceptedProperties.sort()).toEqual([
+      "default_qty_type",
+      "default_qty_value",
+      "initial_capital",
+    ]);
 
-    spy.mockRestore();
+    runSpy.mockRestore();
+    metaSpy.mockRestore();
   });
 
-  it("throws when source is provided without a studyId (pre-compile required)", async () => {
+  it("compiles source via pine-facade and runs the resulting pineId", async () => {
+    const metaSpy = mockNoMeta();
+    const compileSpy = vi.spyOn(pine, "compilePine").mockResolvedValueOnce({
+      success: true,
+      mode: "full",
+      pineId: "USER;tmp123",
+      pineVersion: "1",
+      errors: [],
+      warnings: [],
+    });
+    const runSpy = vi
+      .spyOn(tv, "runStudy")
+      .mockResolvedValueOnce(makeStudyResult({}));
+
+    const result = await runStrategy({
+      symbol: "NASDAQ:AAPL",
+      source: '//@version=5\nstrategy("x")\nplot(close)',
+    });
+
+    expect(compileSpy).toHaveBeenCalledTimes(1);
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(runSpy.mock.calls[0][0].studyId).toBe("USER;tmp123");
+    expect(result.wireDiagnostics.wireForm).toBe("conservative-bundle");
+
+    compileSpy.mockRestore();
+    runSpy.mockRestore();
+    metaSpy.mockRestore();
+  });
+
+  it("surfaces compile errors with category:'validation'", async () => {
+    const compileSpy = vi.spyOn(pine, "compilePine").mockResolvedValueOnce({
+      success: false,
+      mode: "full",
+      errors: [{ message: "unexpected token", line: 3 }],
+      warnings: [],
+    });
+
     await expect(
       runStrategy({
         symbol: "NASDAQ:AAPL",
-        source: "//@version=5\nstrategy('x')\nplot(close)",
+        source: "broken pine",
       }),
-    ).rejects.toThrow(/source path requires pre-compile/);
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("unexpected token"),
+      category: "validation",
+    });
+
+    compileSpy.mockRestore();
   });
 
-  it("throws when studyId is missing", async () => {
+  it("throws when neither studyId nor source is provided", async () => {
     await expect(
       runStrategy({ symbol: "NASDAQ:AAPL" } as any),
-    ).rejects.toThrow(/studyId required/);
+    ).rejects.toThrow(/studyId or source required/);
+  });
+
+  it("throws when symbol is missing", async () => {
+    await expect(
+      runStrategy({ studyId: "PUB;test" } as any),
+    ).rejects.toThrow(/symbol required/);
   });
 
   it("returns empty arrays when nonseries is undefined", async () => {
-    const spy = vi
+    const metaSpy = mockNoMeta();
+    const runSpy = vi
       .spyOn(tv, "runStudy")
       .mockResolvedValueOnce(makeStudyResult(undefined));
     const result = await runStrategy({
@@ -335,14 +622,16 @@ describe("runStrategy", () => {
     expect(result.report).toEqual({});
     expect(result.trades).toEqual([]);
     expect(result.equity).toEqual([]);
-    spy.mockRestore();
+    runSpy.mockRestore();
+    metaSpy.mockRestore();
   });
 
   it("pre-flights closed-source PUB; studyId via is_auth_to_get when a sessionId is provided", async () => {
+    const metaSpy = mockNoMeta();
     const authSpy = vi
       .spyOn(pineCrud, "isAuthToGet")
       .mockResolvedValueOnce({ authorized: true, raw: "true" });
-    const studySpy = vi
+    const runSpy = vi
       .spyOn(tv, "runStudy")
       .mockResolvedValueOnce(makeStudyResult({}));
 
@@ -356,17 +645,19 @@ describe("runStrategy", () => {
     expect(authSpy).toHaveBeenCalledTimes(1);
     expect(authSpy.mock.calls[0][1]).toBe("PUB;closed");
     expect(authSpy.mock.calls[0][2]).toBe("2.0");
-    expect(studySpy).toHaveBeenCalledTimes(1);
+    expect(runSpy).toHaveBeenCalledTimes(1);
 
     authSpy.mockRestore();
-    studySpy.mockRestore();
+    runSpy.mockRestore();
+    metaSpy.mockRestore();
   });
 
   it("throws plan_required when is_auth_to_get returns authorized:false", async () => {
+    const metaSpy = mockNoMeta();
     const authSpy = vi
       .spyOn(pineCrud, "isAuthToGet")
       .mockResolvedValueOnce({ authorized: false, raw: "false" });
-    const studySpy = vi.spyOn(tv, "runStudy");
+    const runSpy = vi.spyOn(tv, "runStudy");
 
     await expect(
       runStrategy({
@@ -381,15 +672,17 @@ describe("runStrategy", () => {
       status: 403,
     });
 
-    expect(studySpy).not.toHaveBeenCalled();
+    expect(runSpy).not.toHaveBeenCalled();
 
     authSpy.mockRestore();
-    studySpy.mockRestore();
+    runSpy.mockRestore();
+    metaSpy.mockRestore();
   });
 
   it("skips is_auth_to_get when no sessionId is provided", async () => {
+    const metaSpy = mockNoMeta();
     const authSpy = vi.spyOn(pineCrud, "isAuthToGet");
-    const studySpy = vi
+    const runSpy = vi
       .spyOn(tv, "runStudy")
       .mockResolvedValueOnce(makeStudyResult({}));
 
@@ -399,15 +692,17 @@ describe("runStrategy", () => {
     });
 
     expect(authSpy).not.toHaveBeenCalled();
-    expect(studySpy).toHaveBeenCalledTimes(1);
+    expect(runSpy).toHaveBeenCalledTimes(1);
 
     authSpy.mockRestore();
-    studySpy.mockRestore();
+    runSpy.mockRestore();
+    metaSpy.mockRestore();
   });
 
   it("skips is_auth_to_get for built-in STD; studyIds", async () => {
+    const metaSpy = mockNoMeta();
     const authSpy = vi.spyOn(pineCrud, "isAuthToGet");
-    const studySpy = vi
+    const runSpy = vi
       .spyOn(tv, "runStudy")
       .mockResolvedValueOnce(makeStudyResult({}));
 
@@ -418,16 +713,17 @@ describe("runStrategy", () => {
     });
 
     expect(authSpy).not.toHaveBeenCalled();
-    expect(studySpy).toHaveBeenCalledTimes(1);
+    expect(runSpy).toHaveBeenCalledTimes(1);
 
     authSpy.mockRestore();
-    studySpy.mockRestore();
+    runSpy.mockRestore();
+    metaSpy.mockRestore();
   });
 });
 
 describe("optimizeStrategy", () => {
-  it("runs a 2x2 sweep, returns sorted results, and selects best by netProfit", async () => {
-    // Map (length, threshold) -> netProfit so we can verify combo plumbing.
+  it("runs a 2x2 sweep, returns sorted results, and selects best by net_profit", async () => {
+    const metaSpy = mockNoMeta();
     const profitTable: Record<string, number> = {
       "10|60": 100,
       "10|70": 250,
@@ -435,50 +731,53 @@ describe("optimizeStrategy", () => {
       "20|70": 50,
     };
     const spy = vi.spyOn(tv, "runStudy").mockImplementation(async (req) => {
-      const key = `${req.params!.length}|${req.params!.threshold}`;
-      return makeStudyResult({ netProfit: profitTable[key] });
+      // The wire-form inputs envelope no longer surfaces friendly names; the
+      // sweep test uses paramsByName which (without meta) doesn't resolve to
+      // slot ids. So we encode the combo directly into in_1/in_2 instead.
+      const length = (req.inputs as any)?.in_1;
+      const threshold = (req.inputs as any)?.in_2;
+      return makeStudyResult({ net_profit: profitTable[`${length}|${threshold}`] });
     });
 
     const out = await optimizeStrategy({
       symbol: "NASDAQ:AAPL",
       studyId: "PUB;test",
-      sweep: { length: [10, 20], threshold: [60, 70] },
+      sweep: { in_1: [10, 20], in_2: [60, 70] },
     });
 
     expect(spy).toHaveBeenCalledTimes(4);
     expect(out.combos).toBe(4);
     expect(out.results).toHaveLength(4);
     expect(out.results.map((r) => r.params)).toEqual([
-      { length: 10, threshold: 60 },
-      { length: 10, threshold: 70 },
-      { length: 20, threshold: 60 },
-      { length: 20, threshold: 70 },
+      { in_1: 10, in_2: 60 },
+      { in_1: 10, in_2: 70 },
+      { in_1: 20, in_2: 60 },
+      { in_1: 20, in_2: 70 },
     ]);
     expect(out.best).toBeDefined();
-    expect(out.best!.params).toEqual({ length: 10, threshold: 70 });
-    expect(out.best!.report.netProfit).toBe(250);
+    expect(out.best!.params).toEqual({ in_1: 10, in_2: 70 });
+    expect(out.best!.report.net_profit).toBe(250);
 
     spy.mockRestore();
+    metaSpy.mockRestore();
   });
 
   it("respects the concurrency parameter", async () => {
+    const metaSpy = mockNoMeta();
     let inFlight = 0;
     let peakInFlight = 0;
     const spy = vi.spyOn(tv, "runStudy").mockImplementation(async () => {
       inFlight += 1;
       if (inFlight > peakInFlight) peakInFlight = inFlight;
-      // Yield a few microtasks to give the limiter a chance to schedule
-      // additional concurrent calls; without this every promise would
-      // resolve before the next is scheduled and inFlight would never grow.
       await new Promise((r) => setTimeout(r, 5));
       inFlight -= 1;
-      return makeStudyResult({ netProfit: 1 });
+      return makeStudyResult({ net_profit: 1 });
     });
 
     await optimizeStrategy({
       symbol: "NASDAQ:AAPL",
       studyId: "PUB;test",
-      sweep: { a: [1, 2, 3, 4, 5, 6] },
+      sweep: { in_1: [1, 2, 3, 4, 5, 6] },
       concurrency: 2,
     });
 
@@ -487,64 +786,71 @@ describe("optimizeStrategy", () => {
     expect(peakInFlight).toBeLessThanOrEqual(2);
 
     spy.mockRestore();
+    metaSpy.mockRestore();
   });
 
   it("skips combos with undefined metric when picking best", async () => {
+    const metaSpy = mockNoMeta();
     const profitByA: Record<number, number | undefined> = {
       1: undefined,
       2: 100,
       3: undefined,
     };
     const spy = vi.spyOn(tv, "runStudy").mockImplementation(async (req) => {
-      const a = req.params!.a as number;
-      const ns = profitByA[a] !== undefined ? { netProfit: profitByA[a] } : {};
+      const a = (req.inputs as any)?.in_1 as number;
+      const ns = profitByA[a] !== undefined ? { net_profit: profitByA[a] } : {};
       return makeStudyResult(ns);
     });
 
     const out = await optimizeStrategy({
       symbol: "NASDAQ:AAPL",
       studyId: "PUB;test",
-      sweep: { a: [1, 2, 3] },
+      sweep: { in_1: [1, 2, 3] },
     });
 
     expect(out.results).toHaveLength(3);
     expect(out.best).toBeDefined();
-    expect(out.best!.params).toEqual({ a: 2 });
-    expect(out.best!.report.netProfit).toBe(100);
+    expect(out.best!.params).toEqual({ in_1: 2 });
+    expect(out.best!.report.net_profit).toBe(100);
 
     spy.mockRestore();
+    metaSpy.mockRestore();
   });
 
   it("returns best=undefined when no combo produces the metric", async () => {
+    const metaSpy = mockNoMeta();
     const spy = vi
       .spyOn(tv, "runStudy")
       .mockResolvedValue(makeStudyResult({}));
     const out = await optimizeStrategy({
       symbol: "NASDAQ:AAPL",
       studyId: "PUB;test",
-      sweep: { a: [1, 2] },
+      sweep: { in_1: [1, 2] },
     });
     expect(out.best).toBeUndefined();
     expect(out.results).toHaveLength(2);
     spy.mockRestore();
+    metaSpy.mockRestore();
   });
 
-  it("can rank by an alternate metric like winRate", async () => {
+  it("can rank by an alternate metric like win_rate", async () => {
+    const metaSpy = mockNoMeta();
     const winRateByA: Record<number, number> = { 1: 0.4, 2: 0.9, 3: 0.6 };
     const spy = vi.spyOn(tv, "runStudy").mockImplementation(async (req) => {
-      const a = req.params!.a as number;
-      return makeStudyResult({ winRate: winRateByA[a] });
+      const a = (req.inputs as any)?.in_1 as number;
+      return makeStudyResult({ win_rate: winRateByA[a] });
     });
 
     const out = await optimizeStrategy({
       symbol: "NASDAQ:AAPL",
       studyId: "PUB;test",
-      sweep: { a: [1, 2, 3] },
-      metric: "winRate",
+      sweep: { in_1: [1, 2, 3] },
+      metric: "win_rate",
     });
 
-    expect(out.best!.params).toEqual({ a: 2 });
-    expect(out.best!.report.winRate).toBe(0.9);
+    expect(out.best!.params).toEqual({ in_1: 2 });
+    expect(out.best!.report.win_rate).toBe(0.9);
     spy.mockRestore();
+    metaSpy.mockRestore();
   });
 });
