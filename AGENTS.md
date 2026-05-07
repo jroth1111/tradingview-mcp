@@ -63,7 +63,7 @@ bd close <id>         # Complete work
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
+2. **Run the canonical pnpm gate set** (if code changed) — see "Canonical 5-gate Set" below
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
@@ -81,4 +81,19 @@ bd close <id>         # Complete work
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
+
+### Canonical 5-gate Set
+
+This is the authoritative session-close verification for this repo. Run these directly with pnpm — do **not** rely on `bd preflight`, which prints Go/Nix-style checks that do not apply to a pnpm workspace and is non-authoritative for this project (tracked in `tradingview-lnl`).
+
+```bash
+pnpm install           # only when dependencies changed
+pnpm run typecheck     # gate 1
+pnpm test              # gate 2 (also runs skill:validate + openapi:validate via the test script)
+pnpm run build         # gate 3
+pnpm run skill:validate    # gate 4 (independent invocation; the test script also runs it)
+pnpm run openapi:validate  # gate 5 (independent invocation; the test script also runs it)
+```
+
+All five must report success. If any fails, fix the underlying issue or record the affected work as `implemented_unverified`/`blocked` per the canonical status model — never push red checks.
 <!-- END BEADS INTEGRATION -->

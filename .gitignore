@@ -17,9 +17,15 @@ admin-tokens.json
 hmac-client.json
 worker/.dev.vars
 
+# Probe output (live TV dialogs — may contain account-bound state)
+probe-output/
+
 # Node modules (both parent and project)
 node_modules/
 tradingview-mcp/node_modules/
+
+# Wrangler local state / build cache
+worker/.wrangler/
 
 # Beads / Dolt files (added by bd init)
 .dolt/
