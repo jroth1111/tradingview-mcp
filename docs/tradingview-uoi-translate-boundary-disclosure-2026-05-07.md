@@ -12,6 +12,7 @@ No cookies, session IDs, auth tokens, plaintext Pine source, full response bodie
 
 The current evidence shows a mismatch between the source-code access boundary and the compiled-artifact translate boundary:
 
+- `pubscripts-get` is context-sensitive for the scoped access=3 UOI scripts: the same 10 script cards returned without cookies did not include `userHaveAccess=true`, while the current entitled session returned `userHaveAccess=true` for all 10.
 - `/pine-facade/get/<pine_id>/last` remained protected: 10/10 scoped scripts returned HTTP 401 in both no-cookie and authenticated contexts, and no source-like body was observed.
 - `/pine-facade/translate/<pine_id>/<version>` returned HTTP 200 in a no-cookie context for 10/10 scoped access=3 UOI indicators.
 - The no-cookie and authenticated translate responses were byte-identical at the redacted hash/length level for 10/10 scripts.
@@ -39,6 +40,35 @@ access = 3
 userHaveAccess = true
 limit = 10
 ```
+
+### 1A. Public Card Entitlement Control
+
+The public script-card endpoint was replayed for the same 10 access=3 UOI ids in two contexts:
+
+```http
+POST /pubscripts-get/
+Host: www.tradingview.com
+Content-Type: application/x-www-form-urlencoded
+Cookie: <omitted or session-authenticated>
+
+scriptIdPart=<comma-separated scoped access=3 ids>&show_hidden=false
+```
+
+Observed result:
+
+```text
+requested = 10
+unauthReturned = 10
+authReturned = 10
+unauthAccess3 = 10
+authAccess3 = 10
+unauthUserHaveAccessTrue = 0
+authUserHaveAccessTrue = 10
+unauthSourceLikePresent = 0
+authSourceLikePresent = 0
+```
+
+Interpretation: for the same protected access=3 scripts, TradingView's card metadata is context-sensitive. A no-cookie caller can learn the ids and high-level card metadata, but does not receive the `userHaveAccess=true` entitlement marker that appears in the entitled session. This makes the direct `/translate` behavior more significant: the compiled-artifact endpoint returns the same encrypted artifacts in both contexts despite the card endpoint distinguishing entitlement.
 
 ### 2. Version Discovery
 
@@ -232,8 +262,12 @@ Interpretation: the server processes the encrypted artifact and rejects simple c
 
 ## Evidence Artifacts
 
+- Access=3 public card entitlement control: `probe-output/uoi-access3-public-discovery-2026-05-07T12-28-53-262Z/summary.json`
+- Access=3 public card entitlement table: `probe-output/uoi-access3-public-discovery-2026-05-07T12-28-53-262Z/table.tsv`
 - UOI translate boundary summary: `probe-output/uoi-unauth-translate-boundary-2026-05-07T11-24-25-291Z/summary.json`
 - UOI translate boundary table: `probe-output/uoi-unauth-translate-boundary-2026-05-07T11-24-25-291Z/table.tsv`
+- Access=2 protected/public control summary: `probe-output/uoi-locked-entitlement-boundary-2026-05-07T12-26-19Z/summary.json`
+- Access=2 protected/public control table: `probe-output/uoi-locked-entitlement-boundary-2026-05-07T12-26-19Z/table.tsv`
 - No-cookie runtime evidence: `probe-output/uoi-unauth-runtime-2026-05-07T11-26-53-853Z/evidence.json`
 - Authenticated UOI baseline/tamper batch summary: `probe-output/uoi-boundary-probe-2026-05-07T11-09-42-236Z/summary.json`
 - Authenticated UOI baseline table: `probe-output/uoi-boundary-probe-2026-05-07T11-09-42-236Z/table.tsv`
@@ -243,10 +277,12 @@ Interpretation: the server processes the encrypted artifact and rejects simple c
 
 Confirmed:
 
+- For scoped access=3 UOI scripts, TradingView's public card endpoint distinguishes entitlement: no-cookie card responses omit `userHaveAccess=true`, while the entitled session card responses include it.
 - Unauthenticated clients can retrieve encrypted compiled artifacts for scoped protected UOI indicators through `/translate`.
 - Unauthenticated clients can retrieve `metaInfo` fields including title, script identifier, version/digest, plot counts, input counts, and selected stats.
 - The returned encrypted artifacts expose deterministic size/length metadata and stable artifact hashes to anyone who can query the endpoint.
 - The no-cookie translate response matches the authenticated translate response for the scoped scripts at the redacted hash and length level.
+- A protected/public access=2 control set showed the same public `/translate` behavior, so access=2 alone should not be used as the invite-only entitlement claim. The access=3 `userHaveAccess` delta is the stronger entitlement boundary evidence.
 
 Not confirmed:
 
