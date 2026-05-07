@@ -289,9 +289,9 @@ export class BacktestJob {
       return errorResponse(400, "missing_worker_version", "workerVersion required");
     }
 
-    const existing = this.sql
-      .exec(`SELECT * FROM jobs WHERE id = ?`, body.jobId)
-      .one() as JobRow | null;
+    const existing = (this.sql
+      .exec(`SELECT * FROM jobs WHERE id = ? LIMIT 1`, body.jobId)
+      .toArray()[0] ?? null) as unknown as JobRow | null;
     if (existing) {
       return json({ jobId: existing.id, deduped: true, status: existing.status });
     }
@@ -511,9 +511,9 @@ export class BacktestJob {
   // ----- internals -----
 
   private singleJob(): JobRow | null {
-    return this.sql
+    return (this.sql
       .exec(`SELECT * FROM jobs ORDER BY submitted_at DESC LIMIT 1`)
-      .one() as JobRow | null;
+      .toArray()[0] ?? null) as unknown as JobRow | null;
   }
 
   private appendEvent(jobId: string, kind: JobEventRecord["kind"], payload: Record<string, unknown>) {

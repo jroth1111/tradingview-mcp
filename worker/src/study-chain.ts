@@ -65,7 +65,7 @@ export const modifyStudy = async (req: StudyRequest): Promise<StudyResult> => {
 
 // === CHAIN ENTRYPOINT =============================================
 export interface StudyChainSpec {
-  /** Canonical study id ("STD;RSI", "PUB;<hash>", "USER;<id>", or already-qualified "STD;RSI@tv-basicstudies-241!"). */
+  /** Canonical study id ("STD;RSI", "PUB;<hash>", "USER;<id>", or already-qualified "RSI@tv-basicstudies-265"). */
   studyId: string;
   /** Raw wire-form inputs ({in_0, in_1, ...}). Merged with `params` after meta resolution. */
   inputs?: Record<string, any>;

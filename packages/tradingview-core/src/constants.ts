@@ -7,6 +7,30 @@ export const TRADINGVIEW_WS_ENDPOINTS: Record<TradingviewEndpoint, string> = {
   "charts-polygon": "wss://charts-polygon.tradingview.com/socket.io/websocket",
 };
 
+// TradingView's WS endpoint requires a query string identifying the connection
+// type for Pine-script studies (Script@tv-scripting-101!) to be permitted by the
+// gateway's entitlement check. Without ?type=chart&auth=sessionid the gateway
+// returns "Study not allowed in this connection" for any Pine create_study even
+// with valid premium credentials. Built-in basicstudies still work on the bare
+// URL but Pine scripts do not, so chart-session callers always need the suffix.
+export const buildChartSessionWsUrl = (endpoint: TradingviewEndpoint): string => {
+  const base = TRADINGVIEW_WS_ENDPOINTS[endpoint];
+  const date = new Date().toISOString().slice(0, 19);
+  return `${base}?from=chart%2F&date=${date}&type=chart&auth=sessionid`;
+};
+
+// Current TradingView built-in study definition pack. The browser's chart loader
+// addresses bare-id studies (Volume, RSI, MACD, etc.) as `<id>@tv-basicstudies-265`
+// as of 2026-05-07. Older versions (45, 118, 241) still respond for some studies
+// but expose a different study-set per pack — 265 is the only pack that aligns
+// with the current TV web client's catalog.
+export const TRADINGVIEW_BASICSTUDIES_VERSION = "265";
+
+// Wire ID emitted for any Pine script create_study (PUB; or USER;). Script
+// identity moves into the inputs dict as { text, pineId, pineVersion } — the
+// wireId is the framework slot, not the script reference.
+export const TRADINGVIEW_PINE_SCRIPT_WIRE_ID = "Script@tv-scripting-101!";
+
 export const VALID_TIMEFRAMES = new Set([
   "1",
   "3",

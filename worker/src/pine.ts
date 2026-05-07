@@ -18,9 +18,19 @@ import type { TradingviewEndpoint } from "../../packages/tradingview-core/src";
 
 const PINE_FACADE = "https://pine-facade.tradingview.com";
 
+const BROWSER_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+  Accept: "application/json, text/plain, */*",
+  "Accept-Language": "en-US,en;q=0.9",
+  Origin: "https://www.tradingview.com",
+  Referer: "https://www.tradingview.com/",
+};
+
 const cookieHeader = (sessionId?: string, sessionSign?: string): Record<string, string> => {
-  if (!sessionId) return {};
+  if (!sessionId) return { ...BROWSER_HEADERS };
   return {
+    ...BROWSER_HEADERS,
     cookie: sessionSign
       ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
       : `sessionid=${sessionId}`,

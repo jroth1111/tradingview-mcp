@@ -4,8 +4,11 @@
 import { RawWebSocket } from "./tv-raw-socket";
 import {
   TIMEFRAME_MAP,
+  TRADINGVIEW_BASICSTUDIES_VERSION,
+  TRADINGVIEW_PINE_SCRIPT_WIRE_ID,
   TRADINGVIEW_WS_ENDPOINTS,
   VALID_TIMEFRAMES,
+  buildChartSessionWsUrl,
   clampBarCount,
   frameTradingViewMessage,
   normalizeTradingViewPayload,
@@ -108,7 +111,15 @@ export const getAuthToken = async (sessionId?: string, sessionSign?: string): Pr
     try {
       const resp = await fetch("https://www.tradingview.com/disclaimer/", {
         method: "GET",
-        headers: { Cookie: cookie },
+        headers: {
+          Cookie: cookie,
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          Referer: "https://www.tradingview.com/",
+        },
       });
       if (!resp.ok) {
         throw new UpstreamError(`auth token request failed: ${resp.status} ${resp.statusText}`, {
@@ -150,7 +161,7 @@ const connect = async (opts: {
   let lastError: any;
 
   for (const ep of attempts) {
-    const wsUrl = TRADINGVIEW_WS_ENDPOINTS[ep];
+    const wsUrl = buildChartSessionWsUrl(ep);
     const socket = new RawWebSocket(wsUrl, {
       sessionId: opts.sessionId,
       sessionSign: opts.sessionSign,
@@ -883,7 +894,7 @@ export const getUserProfile = async (req: {
 // study_completed.params[1] which is always empty.
 export interface StudyRequest {
   symbol: string;
-  studyId: string; // canonical "STD;RSI", "PUB;<hash>", "USER;<id>", or pre-qualified "STD;RSI@tv-basicstudies-241!"
+  studyId: string; // canonical "STD;RSI", "PUB;<hash>", "USER;<id>", or pre-qualified "RSI@tv-basicstudies-265"
   script?: string; // accepted by the route contract; retained for source-backed study flows
   inputs?: Record<string, any>; // raw wire form {in_0, in_1, ...}
   params?: Record<string, any>; // friendly {name: value} mapped via metainfo
@@ -941,6 +952,9 @@ const SOURCE_ALIASES = new Set([
 interface ResolvedWireId {
   wireId: string;
   version: string;
+  // For Pine scripts (PUB;/USER;), the underlying Pine identity that must be
+  // injected into the create_study inputs dict alongside the encrypted IL.
+  pineId?: string;
 }
 
 const resolveStudyWireId = async (
@@ -948,41 +962,49 @@ const resolveStudyWireId = async (
   sessionId?: string,
   sessionSign?: string,
 ): Promise<ResolvedWireId> => {
-  // Already qualified — extract version segment for return only.
+  // Already qualified — pass through verbatim. Callers that pre-qualify a wire
+  // id are asserting an exact format; respect it.
   if (rawId.includes("@")) {
-    const versionMatch = rawId.match(/@[a-z-]+-([0-9]+)!?$/);
+    const versionMatch = rawId.match(/@[a-z-]+-([0-9.]+)!?$/);
     return { wireId: rawId, version: versionMatch?.[1] ?? "last" };
   }
 
-  const headers: Record<string, string> = {};
-  if (sessionId) {
-    headers["cookie"] = sessionSign
-      ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
-      : `sessionid=${sessionId}`;
-  }
-  const versionsUrl = `https://pine-facade.tradingview.com/pine-facade/versions/${encodeURIComponent(rawId)}/last`;
-  let version = "last";
-  try {
-    const resp = await fetch(versionsUrl, { headers });
-    if (resp.ok) {
-      const data: any = await resp.json();
-      const v = Array.isArray(data) ? data[0]?.version : data?.version;
-      if (v != null) version = String(v);
+  // Pine scripts (PUB;<hash>, USER;<hash>) all execute through the framework
+  // slot Script@tv-scripting-101!. Script identity is carried via inputs.pineId
+  // and inputs.text (the encrypted IL fetched from pine-facade/translate).
+  if (rawId.startsWith("PUB;") || rawId.startsWith("USER;")) {
+    const headers: Record<string, string> = {};
+    if (sessionId) {
+      headers["cookie"] = sessionSign
+        ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
+        : `sessionid=${sessionId}`;
     }
-  } catch {
-    // tolerate network blips on version lookup; "last" works as a fallback
+    let version = "1.0";
+    try {
+      const resp = await fetch(
+        `https://pine-facade.tradingview.com/pine-facade/versions/${encodeURIComponent(rawId)}/last`,
+        { headers },
+      );
+      if (resp.ok) {
+        const data: any = await resp.json();
+        const v = Array.isArray(data) ? data[0]?.version : data?.version;
+        if (v != null) version = String(v);
+      }
+    } catch {
+      // tolerate network blips; "1.0" is the most common Pine version
+    }
+    return { wireId: TRADINGVIEW_PINE_SCRIPT_WIRE_ID, version, pineId: rawId };
   }
 
-  if (rawId.startsWith("PUB;") || rawId.startsWith("USER;")) {
-    return { wireId: `Script$${rawId}@tv-scripting-101!`, version };
-  }
-  if (rawId.startsWith("STD;")) {
-    const ns = version === "last" ? "tv-basicstudies" : `tv-basicstudies-${version}`;
-    return { wireId: `${rawId}@${ns}!`, version };
-  }
-  // Bare legacy id like "RSI" — treat as basicstudies.
-  const ns = version === "last" ? "tv-basicstudies" : `tv-basicstudies-${version}`;
-  return { wireId: `${rawId}@${ns}!`, version };
+  // Built-in studies (RSI, Volume, MACD, etc., or the legacy STD;<id> form)
+  // address into the basicstudies definition pack. The current pack version
+  // (TRADINGVIEW_BASICSTUDIES_VERSION) is what the live web client uses; the
+  // STD; prefix is no longer recognized by the WS gateway and must be dropped.
+  const bareId = rawId.startsWith("STD;") ? rawId.slice(4) : rawId;
+  return {
+    wireId: `${bareId}@tv-basicstudies-${TRADINGVIEW_BASICSTUDIES_VERSION}`,
+    version: TRADINGVIEW_BASICSTUDIES_VERSION,
+  };
 };
 
 const buildInputsDict = (
@@ -1096,6 +1118,20 @@ export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
   const inputsDict = req.inputsPreShaped
     ? { ...(req.inputs ?? {}) }
     : buildInputsDict(req.inputs, req.params, meta, parentSeriesId);
+
+  // Pine scripts (PUB;/USER;) execute via the framework wire id; the script
+  // identity must be injected into the inputs dict as { text, pineId,
+  // pineVersion }. The encrypted IL is fetched by getIndicatorMeta into
+  // meta.script (data.result.ilTemplate from pine-facade/translate).
+  if (wireId === TRADINGVIEW_PINE_SCRIPT_WIRE_ID) {
+    const pineId = req.studyId.split("@")[0];
+    if (!meta?.script) {
+      throw new Error(`pine script ${pineId} missing IL: pine-facade/translate did not return ilTemplate`);
+    }
+    inputsDict.text = meta.script;
+    inputsDict.pineId = pineId;
+    inputsDict.pineVersion = meta.version || "1.0";
+  }
 
   const chartSession = generateSessionId("cs");
   const studySlot = "st1";
@@ -1846,7 +1882,7 @@ export const getStreamBootstrap = async (
 ): Promise<StreamBootstrap> => {
   const endpoint =
     req.endpoint && TRADINGVIEW_WS_ENDPOINTS[req.endpoint] ? req.endpoint : ("prodata" as TradingviewEndpoint);
-  const wsUrl = TRADINGVIEW_WS_ENDPOINTS[endpoint];
+  const wsUrl = buildChartSessionWsUrl(endpoint);
   const token = await getAuthToken(req.sessionId, req.sessionSign);
   const chartSession = generateSessionId("cs");
   const quoteSession = generateSessionId("qs");

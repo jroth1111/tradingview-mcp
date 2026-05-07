@@ -231,7 +231,7 @@ describe("runPine", () => {
     symbol: "BINANCE:BTCUSDT",
     studyId: "USER;new123",
     studyVersion: "v5",
-    wireId: "Script$USER;new123@tv-scripting-101!",
+    wireId: "Script@tv-scripting-101!",
     timeframe: "60",
     bars: 300,
     plots: [],

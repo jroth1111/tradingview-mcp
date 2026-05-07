@@ -687,8 +687,8 @@ describe("Pine + strategy + study-chain + chart-session (la1, g6v, xu3, 2v6)", (
         {
           slotName: "st1",
           studyId: "STD;EMA",
-          wireId: "STD;EMA@tv-basicstudies-241!",
-          studyVersion: "241",
+          wireId: "EMA@tv-basicstudies-265",
+          studyVersion: "265",
           parentSlot: "sds_1",
           plots: [],
         },

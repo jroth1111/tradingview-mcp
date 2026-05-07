@@ -23,7 +23,7 @@ const makeStudyResult = (
   symbol: "NASDAQ:AAPL",
   studyId: "PUB;test",
   studyVersion: "1",
-  wireId: "Script$PUB;test@tv-scripting-101!",
+  wireId: "Script@tv-scripting-101!",
   timeframe: "60",
   bars: 300,
   plots: [],

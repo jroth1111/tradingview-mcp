@@ -20,8 +20,11 @@
 import { RawWebSocket } from "./tv-raw-socket";
 import {
   TIMEFRAME_MAP,
+  TRADINGVIEW_BASICSTUDIES_VERSION,
+  TRADINGVIEW_PINE_SCRIPT_WIRE_ID,
   TRADINGVIEW_WS_ENDPOINTS,
   VALID_TIMEFRAMES,
+  buildChartSessionWsUrl,
   clampBarCount,
   frameTradingViewMessage,
   normalizeTradingViewPayload,
@@ -149,11 +152,14 @@ export type ConnectFactory = (opts: {
 interface ResolvedWireId {
   wireId: string;
   version: string;
+  pineId?: string;
 }
 
 interface IndicatorMetaLike {
   inputs: any[];
   plots: any[];
+  script?: string;
+  version?: string;
 }
 
 const SOURCE_ALIASES = new Set([
@@ -207,7 +213,15 @@ const getAuthToken = async (sessionId?: string, sessionSign?: string): Promise<s
   try {
     const resp = await fetch("https://www.tradingview.com/disclaimer/", {
       method: "GET",
-      headers: { Cookie: cookie },
+      headers: {
+        Cookie: cookie,
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        Referer: "https://www.tradingview.com/",
+      },
     });
     if (!resp.ok) return "unauthorized_user_token";
     const text = await resp.text();
@@ -229,7 +243,7 @@ const defaultConnect: ConnectFactory = async (opts) => {
   let lastError: any;
 
   for (const ep of attempts) {
-    const wsUrl = TRADINGVIEW_WS_ENDPOINTS[ep];
+    const wsUrl = buildChartSessionWsUrl(ep);
     const socket = new RawWebSocket(wsUrl, {
       sessionId: opts.sessionId,
       sessionSign: opts.sessionSign,
@@ -336,34 +350,34 @@ const resolveStudyWireId = async (
     return { wireId: rawId, version: versionMatch?.[1] ?? "last" };
   }
 
-  const headers: Record<string, string> = {};
-  if (sessionId) {
-    headers["cookie"] = sessionSign
-      ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
-      : `sessionid=${sessionId}`;
-  }
-  const versionsUrl = `https://pine-facade.tradingview.com/pine-facade/versions/${encodeURIComponent(rawId)}/last`;
-  let version = "last";
-  try {
-    const resp = await fetch(versionsUrl, { headers });
-    if (resp.ok) {
-      const data: any = await resp.json();
-      const v = Array.isArray(data) ? data[0]?.version : data?.version;
-      if (v != null) version = String(v);
+  if (rawId.startsWith("PUB;") || rawId.startsWith("USER;")) {
+    const headers: Record<string, string> = {};
+    if (sessionId) {
+      headers["cookie"] = sessionSign
+        ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
+        : `sessionid=${sessionId}`;
     }
-  } catch {
-    // version lookup is best-effort; "last" is a valid fallback wire fragment.
+    const versionsUrl = `https://pine-facade.tradingview.com/pine-facade/versions/${encodeURIComponent(rawId)}/last`;
+    let version = "1.0";
+    try {
+      const resp = await fetch(versionsUrl, { headers });
+      if (resp.ok) {
+        const data: any = await resp.json();
+        const v = Array.isArray(data) ? data[0]?.version : data?.version;
+        if (v != null) version = String(v);
+      }
+    } catch {
+      // version lookup is best-effort; the chart loader accepts "1.0" as a default.
+    }
+    return { wireId: TRADINGVIEW_PINE_SCRIPT_WIRE_ID, version, pineId: rawId };
   }
 
-  if (rawId.startsWith("PUB;") || rawId.startsWith("USER;")) {
-    return { wireId: `Script$${rawId}@tv-scripting-101!`, version };
-  }
-  if (rawId.startsWith("STD;")) {
-    const ns = version === "last" ? "tv-basicstudies" : `tv-basicstudies-${version}`;
-    return { wireId: `${rawId}@${ns}!`, version };
-  }
-  const ns = version === "last" ? "tv-basicstudies" : `tv-basicstudies-${version}`;
-  return { wireId: `${rawId}@${ns}!`, version };
+  // Built-in studies: drop the legacy STD; prefix and pin to the current basicstudies pack.
+  const bareId = rawId.startsWith("STD;") ? rawId.slice(4) : rawId;
+  return {
+    wireId: `${bareId}@tv-basicstudies-${TRADINGVIEW_BASICSTUDIES_VERSION}`,
+    version: TRADINGVIEW_BASICSTUDIES_VERSION,
+  };
 };
 
 const fetchIndicatorMeta = async (
@@ -389,7 +403,14 @@ const fetchIndicatorMeta = async (
     const data: any = await resp.json();
     if (!data?.success || !data?.result?.metaInfo) return null;
     const meta = data.result.metaInfo;
-    return { inputs: meta.inputs || [], plots: meta.plots || [] };
+    const script = data.result.ilTemplate ?? data.result.IL ?? undefined;
+    const version = data.result.metaInfo?.pine?.version ?? data.result.metaInfo?.version;
+    return {
+      inputs: meta.inputs || [],
+      plots: meta.plots || [],
+      script,
+      version: version != null ? String(version) : undefined,
+    };
   } catch {
     return null;
   }
@@ -699,7 +720,7 @@ export class ChartSession {
     }
     const parentSlot = body.parentSlot ?? this.chartSessionState.parentSeriesId;
 
-    const [{ wireId, version }, meta] = await Promise.all([
+    const [{ wireId, version, pineId }, meta] = await Promise.all([
       resolveStudyWireId(
         body.studyId,
         this.chartSessionState.sessionId,
@@ -715,6 +736,21 @@ export class ChartSession {
     ]);
 
     const inputsDict = buildInputsDict(body.inputs, body.params, meta, parentSlot);
+
+    if (wireId === TRADINGVIEW_PINE_SCRIPT_WIRE_ID) {
+      const scriptId = pineId ?? body.studyId.split("@")[0];
+      if (!meta?.script) {
+        return Response.json(
+          {
+            error: `pine script ${scriptId} missing IL: pine-facade/translate did not return ilTemplate`,
+          },
+          { status: 502 },
+        );
+      }
+      inputsDict.text = meta.script;
+      inputsDict.pineId = scriptId;
+      inputsDict.pineVersion = meta.version ?? version ?? "1.0";
+    }
 
     const turnaround = 1;
     const slotEntry: SlotEntry = {

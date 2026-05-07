@@ -281,18 +281,25 @@ const probeStrategyDetection = async (creds) => {
 const probeWalkforward = async (creds) => {
   const file = probeFile("slice-c-walkforward");
   console.log(`>> slice-c-walkforward -> ${file}`);
+  const payload = {
+    symbol: "NASDAQ:AAPL",
+    studyId: "STD;Supertrend Strategy",
+    timeframe: "D",
+    bars: 1000,
+    paramGrid: { factor: [2, 3] },
+    isWindowBars: 600,
+    oosWindowBars: 200,
+    stepBars: 200,
+  };
   const body = {
     type: "walkforward",
-    input: {
-      symbol: "NASDAQ:AAPL",
-      studyId: "STD;Supertrend Strategy",
-      timeframe: "D",
-      bars: 1000,
-      paramGrid: { factor: [2, 3] },
-      isBars: 600,
-      oosBars: 200,
-      stride: 200,
+    inputs: {
+      symbol: payload.symbol,
+      timeframe: payload.timeframe,
+      barCount: payload.bars,
+      scriptId: payload.studyId,
     },
+    payload,
   };
   writeLine(file, { kind: "request", path: "/v1/jobs/submit", body });
   const r = await callWorker({ method: "POST", path: "/v1/jobs/submit", body, creds });
@@ -304,15 +311,22 @@ const probeWalkforward = async (creds) => {
 const probeMatrix = async (creds) => {
   const file = probeFile("slice-c-matrix");
   console.log(`>> slice-c-matrix -> ${file}`);
+  const payload = {
+    symbols: ["NASDAQ:AAPL", "NASDAQ:MSFT", "NASDAQ:GOOG"],
+    timeframes: ["60", "D"],
+    studyId: "STD;Supertrend Strategy",
+    paramGrid: { factor: [1, 2, 3, 4] },
+    bars: 500,
+  };
   const body = {
     type: "matrix",
-    input: {
-      symbols: ["NASDAQ:AAPL", "NASDAQ:MSFT", "NASDAQ:GOOG"],
-      timeframes: ["60", "D"],
-      studyId: "STD;Supertrend Strategy",
-      paramGrid: { factor: [1, 2, 3, 4] },
-      bars: 500,
+    inputs: {
+      symbol: payload.symbols.join(","),
+      timeframe: payload.timeframes.join(","),
+      barCount: payload.bars,
+      scriptId: payload.studyId,
     },
+    payload,
   };
   writeLine(file, { kind: "request", body });
   const r = await callWorker({ method: "POST", path: "/v1/jobs/submit", body, creds });
@@ -324,13 +338,19 @@ const probeMatrix = async (creds) => {
 const probeOhlcvExtract = async (creds) => {
   const file = probeFile("slice-e-ohlcv-extract");
   console.log(`>> slice-e-ohlcv-extract -> ${file}`);
+  const payload = {
+    selector: { mode: "symbols", symbols: ["NASDAQ:AAPL"] },
+    timeframes: ["1D"],
+    history: { default: { bars: 1000 } },
+  };
   const body = {
     type: "ohlcvExtract",
-    input: {
-      symbol: "NASDAQ:AAPL",
-      timeframe: "D",
-      bars: 1000,
+    inputs: {
+      symbol: payload.selector.symbols.join(","),
+      timeframe: payload.timeframes.join(","),
+      barCount: payload.history.default.bars,
     },
+    payload,
   };
   writeLine(file, { kind: "request", body });
   const r = await callWorker({ method: "POST", path: "/v1/jobs/submit", body, creds });
