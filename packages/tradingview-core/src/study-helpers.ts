@@ -188,7 +188,12 @@ export const resolveStudyWireId = async (
       const data: any = await resp.json();
       const ilTemplate = data?.result?.ilTemplate ?? data?.result?.IL;
       if (data?.success && ilTemplate) {
-        const isStrategy = data?.result?.metaInfo?.is_strategy === true;
+        // User-authored Pine strategies set `is_strategy: true`; TV's built-in
+        // strategies (STD;Supertrend%Strategy, STD;Bollinger%1Bands%1Strategy,
+        // …) instead set `isTVScriptStrategy: true` and leave `is_strategy`
+        // undefined. Treat either signal as strategy.
+        const meta = data?.result?.metaInfo;
+        const isStrategy = meta?.is_strategy === true || meta?.isTVScriptStrategy === true;
         const wireId = isStrategy
           ? TRADINGVIEW_PINE_STRATEGY_WIRE_ID
           : TRADINGVIEW_PINE_SCRIPT_WIRE_ID;
@@ -310,7 +315,7 @@ export const buildStudyPlots = (
     }
     plots.push({
       id: plotId,
-      name: title,
+      name: plotId,
       title,
       type: def.type || "line",
       data,

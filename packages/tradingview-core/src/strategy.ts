@@ -41,6 +41,7 @@ export interface StudyLikeForStrategyDetection {
   metaInfo?: {
     is_strategy?: boolean;
     isStrategy?: boolean;
+    isTVScriptStrategy?: boolean;
     [key: string]: unknown;
   } | null;
   extra?: { kind?: string; [key: string]: unknown } | null;
@@ -53,8 +54,12 @@ export const isStudyStrategy = (
   study: StudyLikeForStrategyDetection | null | undefined,
 ): boolean => {
   if (!study) return false;
+  // User-authored Pine strategies use `is_strategy`/`isStrategy`; TV's
+  // built-in strategies (STD;Supertrend%Strategy, STD;MACD%1Strategy, …)
+  // expose `isTVScriptStrategy` instead.
   if (study.metaInfo?.is_strategy === true) return true;
   if (study.metaInfo?.isStrategy === true) return true;
+  if (study.metaInfo?.isTVScriptStrategy === true) return true;
   if (study.extra?.kind === "strategy") return true;
   return false;
 };

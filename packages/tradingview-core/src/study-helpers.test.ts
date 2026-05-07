@@ -150,6 +150,27 @@ describe("resolveStudyWireId — friendly built-in aliases", () => {
     expect(out.wireId).toBe(TRADINGVIEW_PINE_STRATEGY_WIRE_ID);
   });
 
+  it("built-in strategy with isTVScriptStrategy=true resolves to StrategyScript wire id", async () => {
+    // TV's built-in strategies (STD;Supertrend%Strategy, etc.) set
+    // metaInfo.isTVScriptStrategy=true and leave is_strategy undefined.
+    fetchMock
+      .mockResolvedValueOnce(mkResp(LIST_BODY))
+      .mockResolvedValueOnce(
+        mkResp({
+          success: true,
+          result: {
+            ilTemplate: "ENC_IL_BUILTIN_STRAT",
+            metaInfo: { isTVScriptStrategy: true, pine: { version: "7.0" } },
+          },
+        }),
+      );
+
+    const out = await resolveStudyWireId("ADX");
+
+    expect(out.wireId).toBe(TRADINGVIEW_PINE_STRATEGY_WIRE_ID);
+    expect(out.version).toBe("7.0");
+  });
+
   it("memoises the list fetch across resolver calls", async () => {
     fetchMock
       .mockResolvedValueOnce(mkResp(LIST_BODY))

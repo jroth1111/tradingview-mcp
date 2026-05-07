@@ -64,6 +64,12 @@ describe("isStudyStrategy", () => {
     expect(isStudyStrategy({ metaInfo: { isStrategy: true } })).toBe(true);
   });
 
+  it("returns true when metaInfo.isTVScriptStrategy is true (built-in strategies)", () => {
+    expect(
+      isStudyStrategy({ metaInfo: { isTVScriptStrategy: true } }),
+    ).toBe(true);
+  });
+
   it("returns true when extra.kind is 'strategy'", () => {
     expect(isStudyStrategy({ extra: { kind: "strategy" } })).toBe(true);
   });
