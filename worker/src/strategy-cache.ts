@@ -68,6 +68,7 @@ export const buildCellCacheKey = async (
     timeframe: req.timeframe,
     bars: req.bars,
     endpoint: req.endpoint,
+    to: req.to,
   };
   const hash = await sha256Hex(stableStringify(seed));
   return `tv_cell:${hash}`;

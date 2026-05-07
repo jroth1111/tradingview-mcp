@@ -358,104 +358,202 @@ const runApproxSlice = (
   };
 };
 
-// exactWindowed — per-fold runs with explicit warmup. Uses the same single
-// full-history run per combo as approxSlice, but applies purge (drop trades
-// straddling fold boundaries) and embargo (drop trades within `embargoBars`
-// after each test fold from any subsequent train fold) per the
-// López de Prado CPCV recipe. PBO and the deflated metrics are computed
-// without the approxSlice contamination caveat.
+// exactWindowed — true per-fold runs with explicit warmup. For each
+// (combo, fold) the runner makes one isolated TV call with
+// `to = foldEndTs[f]` and `bars = warmupBars + (f+1)*foldWidth`, so the
+// strategy's pre-fold state is bounded by the warmup tail and not by any
+// previous folds. Per-fold metrics are computed from the bars in
+// [foldStartTs[f], foldEndTs[f]] of each isolated run; trades are purged
+// (drop trades that straddle fold boundaries) and embargo'd (drop trades
+// within the last embargoBars of the fold) before metric computation.
 //
-// Note: a true per-fold TV run requires `to`-timestamp support in the
-// strategy run path. The current implementation slices the single-run
-// equity by bar index but applies purge/embargo to recover a defensible
-// approximation. Once the TV path supports per-fold history truncation,
-// this runner should switch to one TV call per (combo × fold) without
-// changing the public output shape.
-const runExactWindowed = (
+// Cost: one boundary-discovery run for combos[0] + |combos| × N isolated
+// per-fold runs. The KV cache short-circuits identical (combo, fold)
+// requests across re-submissions.
+const runExactWindowed = async (
   combos: readonly Record<string, any>[],
-  histories: readonly ComboHistory[],
   input: CpcvInput,
   metric: RankingMetric,
   ppy: number,
   startTs: number,
-): CpcvResult => {
+  concurrency: number,
+): Promise<CpcvResult> => {
   const N = input.N;
   const embargoBars = Math.max(0, input.embargoBars ?? 0);
-  const minLen = histories.reduce(
-    (acc, h) => Math.min(acc, h.equity.length),
-    histories[0]?.equity.length ?? 0,
-  );
-  const foldWidth = Math.floor(minLen / N);
+  const warmupBars = Math.max(0, input.warmupBars ?? 0);
+  const requestedTotalBars = Math.max(1, input.bars ?? 1000);
+
+  // Boundary discovery: one full-history run for combos[0]. The boundary
+  // equity supplies the per-fold timestamp boundaries used to anchor the
+  // isolated per-fold runs. We honour whatever TV returned (which may be
+  // shorter than requested when the symbol/timeframe runs out of history)
+  // and partition that into N folds.
+  const boundaryReq: StrategyRunRequest = {
+    symbol: input.symbol,
+    studyId: input.studyId,
+    source: input.source,
+    pineVersion: input.pineVersion,
+    properties: input.properties,
+    inputs: input.baseInputs,
+    params: { ...(input.baseParams ?? {}), ...combos[0] },
+    timeframe: input.timeframe,
+    bars: warmupBars + requestedTotalBars,
+    sessionId: input.sessionId,
+    sessionSign: input.sessionSign,
+    endpoint: input.endpoint,
+  };
+  const boundary = await runStrategyCached(boundaryReq, input.kv);
+  const boundaryEquity = boundary.equity ?? [];
+  const actualUsableBars = Math.max(0, boundaryEquity.length - warmupBars);
+  const foldWidth = Math.floor(actualUsableBars / N);
   if (foldWidth === 0) {
     throw Object.assign(
       new Error(
-        `cpcv:exactWindowed: equity length ${minLen} too short for N=${N} folds`,
+        `cpcv:exactWindowed: equity length ${boundaryEquity.length} too short for N=${N} folds`,
       ),
       { code: "cpcv_insufficient_history" },
     );
   }
-  const foldBoundaries: number[] = [];
-  for (let f = 0; f <= N; f += 1) foldBoundaries.push(f * foldWidth);
+  // Trim warmup from the head; the trailing N*foldWidth bars are the in-scope
+  // fold area.
+  const boundaryTrim = boundaryEquity.slice(boundaryEquity.length - N * foldWidth);
+  const foldStartTs: number[] = [];
+  const foldEndTs: number[] = [];
+  for (let f = 0; f < N; f += 1) {
+    foldStartTs.push(boundaryTrim[f * foldWidth]?.ts ?? 0);
+    foldEndTs.push(boundaryTrim[(f + 1) * foldWidth - 1]?.ts ?? 0);
+  }
 
-  // Per-(combo, fold) metric with purge + embargo applied to trades.
-  const perFoldMetrics: number[][] = histories.map(() => new Array(N).fill(NaN));
-  for (let c = 0; c < histories.length; c += 1) {
-    const hist = histories[c];
+  // Per-(combo, fold) isolated run.
+  interface FoldRun {
+    equity: StrategyEquityPoint[];
+    trades: StrategyTrade[];
+  }
+  const cellTasks: Array<{ c: number; f: number }> = [];
+  for (let c = 0; c < combos.length; c += 1) {
     for (let f = 0; f < N; f += 1) {
-      const startIdx = foldBoundaries[f];
-      const endIdx = foldBoundaries[f + 1];
-      const startBoundaryTs = hist.equity[startIdx]?.ts ?? 0;
-      const endBoundaryTs = hist.equity[endIdx - 1]?.ts ?? startBoundaryTs;
-      const eqSlice = hist.equity.slice(startIdx, endIdx);
-      // Purge: drop trades that straddle either boundary of this fold.
-      const tradesSlice = hist.trades.filter((t) => {
-        if (t.entry_time < startBoundaryTs) return false;
-        if ((t.exit_time ?? t.entry_time) >= endBoundaryTs) return false;
-        if (typeof t.exit_time === "number") {
-          if (t.entry_time < startBoundaryTs && t.exit_time >= startBoundaryTs) return false;
-          if (t.entry_time < endBoundaryTs && t.exit_time >= endBoundaryTs) return false;
-        }
-        return true;
-      });
-      // Embargo: when this fold is used as training input for a later test
-      // fold, drop trades within the last `embargoBars` of this fold from
-      // its own metric — a conservative "lookback bridge" exclusion.
-      const embargoCutoffIdx = Math.max(startIdx, endIdx - embargoBars);
-      const embargoCutoffTs = hist.equity[embargoCutoffIdx]?.ts ?? endBoundaryTs;
-      const purged = tradesSlice.filter(
-        (t) => (t.exit_time ?? t.entry_time) < embargoCutoffTs,
-      );
-      const bundle = buildMetricBundle({
-        equity: equityValues(eqSlice),
-        tradePnl: tradePnl(purged),
-        periodsPerYear: ppy,
-      });
-      perFoldMetrics[c][f] = pickMetric(bundle, metric);
+      cellTasks.push({ c, f });
+    }
+  }
+  const runFoldCell = async (
+    c: number,
+    f: number,
+  ): Promise<FoldRun> => {
+    const params = { ...(input.baseParams ?? {}), ...combos[c] };
+    const req: StrategyRunRequest = {
+      symbol: input.symbol,
+      studyId: input.studyId,
+      source: input.source,
+      pineVersion: input.pineVersion,
+      properties: input.properties,
+      inputs: input.baseInputs,
+      params,
+      timeframe: input.timeframe,
+      bars: warmupBars + (f + 1) * foldWidth,
+      to: foldEndTs[f],
+      sessionId: input.sessionId,
+      sessionSign: input.sessionSign,
+      endpoint: input.endpoint,
+    };
+    const out = await runStrategyCached(req, input.kv);
+    return { equity: out.equity ?? [], trades: out.trades ?? [] };
+  };
+  const cellResults = await runWithConcurrency(
+    cellTasks,
+    concurrency,
+    async ({ c, f }) => runFoldCell(c, f),
+  );
+  const perFoldRuns: FoldRun[][] = combos.map(() => new Array(N));
+  for (let i = 0; i < cellTasks.length; i += 1) {
+    const { c, f } = cellTasks[i];
+    perFoldRuns[c][f] = cellResults[i];
+  }
+
+  // Compute per-fold metric from the isolated run's [foldStartTs, foldEndTs]
+  // slice with purge + embargo applied.
+  const foldMetricsFor = (
+    run: FoldRun,
+    f: number,
+    embargo: number,
+  ): { sortino: number; sharpe: number; metric: number } => {
+    const startTsf = foldStartTs[f];
+    const endTsf = foldEndTs[f];
+    const eqInFold = run.equity.filter(
+      (p) => p.ts >= startTsf && p.ts <= endTsf,
+    );
+    // Purge: drop trades that straddle either fold boundary.
+    const tradesInFold = run.trades.filter((t) => {
+      const exitTs = t.exit_time ?? t.entry_time;
+      if (t.entry_time < startTsf) return false;
+      if (exitTs > endTsf) return false;
+      return tradesInRange([t], startTsf, endTsf + 1).length > 0;
+    });
+    // Embargo: drop trades whose exit falls within the last `embargo` bars
+    // of the fold — these would carry information into the next fold's
+    // train window.
+    const embargoCutoffIdx = Math.max(0, eqInFold.length - embargo);
+    const embargoCutoffTs = eqInFold[embargoCutoffIdx]?.ts ?? endTsf;
+    const purged = tradesInFold.filter(
+      (t) => (t.exit_time ?? t.entry_time) < embargoCutoffTs,
+    );
+    const bundle = buildMetricBundle({
+      equity: equityValues(eqInFold),
+      tradePnl: tradePnl(purged),
+      periodsPerYear: ppy,
+    });
+    return {
+      sortino: bundle.sortino,
+      sharpe: bundle.sharpe,
+      metric: pickMetric(bundle, metric),
+    };
+  };
+
+  const perFoldMetrics: number[][] = combos.map(() => new Array(N).fill(NaN));
+  const perFoldSortino: number[][] = combos.map(() => new Array(N).fill(NaN));
+  const perFoldSharpe: number[][] = combos.map(() => new Array(N).fill(NaN));
+  for (let c = 0; c < combos.length; c += 1) {
+    for (let f = 0; f < N; f += 1) {
+      const out = foldMetricsFor(perFoldRuns[c][f], f, embargoBars);
+      perFoldMetrics[c][f] = out.metric;
+      perFoldSortino[c][f] = out.sortino;
+      perFoldSharpe[c][f] = out.sharpe;
     }
   }
 
   const pbo = computePbo({ metrics: perFoldMetrics, k: input.k });
 
-  // OOS distribution: per-split, take the test-fold mean metric of the
-  // IS-winner. This is the unqualified "OOS distribution" allowed only in
-  // exactWindowed mode.
+  // OOS distribution: for each split, take the IS winner's mean metric on
+  // the split's test folds — genuinely OOS now that per-fold runs are
+  // isolated.
   const oosSortinoDist: number[] = [];
   const oosSharpeDist: number[] = [];
+  const meanFiniteAt = (
+    arr: readonly number[],
+    indices: readonly number[],
+  ): number | null => {
+    let sum = 0;
+    let n = 0;
+    for (const i of indices) {
+      const v = arr[i];
+      if (Number.isFinite(v)) {
+        sum += v;
+        n += 1;
+      }
+    }
+    return n === 0 ? null : sum / n;
+  };
   for (const detail of pbo.details) {
-    const winner = histories[detail.trainBestIdx];
-    if (!winner) continue;
-    const eqValues = equityValues(winner.equity);
-    const tBundle = buildMetricBundle({
-      equity: eqValues,
-      tradePnl: tradePnl(winner.trades),
-      periodsPerYear: ppy,
-    });
-    oosSortinoDist.push(tBundle.sortino);
-    oosSharpeDist.push(tBundle.sharpe);
+    const sortino = meanFiniteAt(perFoldSortino[detail.trainBestIdx], detail.testFolds);
+    const sharpe = meanFiniteAt(perFoldSharpe[detail.trainBestIdx], detail.testFolds);
+    if (sortino !== null) oosSortinoDist.push(sortino);
+    if (sharpe !== null) oosSharpeDist.push(sharpe);
   }
 
-  const pooled = histories[0]?.equity ? equityValues(histories[0].equity) : [];
-  const pooledTrades = histories[0]?.trades ? tradePnl(histories[0].trades) : [];
+  // Pooled OOS summary uses the boundary equity (full timeline) as a stable
+  // proxy for the pooled return stream. Concatenating per-fold isolated
+  // equities double-counts warmup bars and is not equivalent.
+  const pooled = equityValues(boundaryTrim);
+  const pooledTrades = tradePnl(boundary.trades ?? []);
   const oosSummary = buildMetricBundle({
     equity: pooled,
     tradePnl: pooledTrades,
@@ -470,10 +568,14 @@ const runExactWindowed = (
   };
 
   const notes: string[] = [
+    "exactWindowed: per-fold isolated TV runs (to=foldEndTs, bars=warmup+foldEnd)",
     "exactWindowed: purge + embargo applied to fold-trade assignment",
   ];
   if (embargoBars === 0) {
     notes.push("embargoBars=0: no post-fold dampener; consider >0 for serial-correlated returns");
+  }
+  if (warmupBars === 0) {
+    notes.push("warmupBars=0: per-fold runs start at first bar; var/varip state isolation may be incomplete");
   }
 
   return {
@@ -519,10 +621,9 @@ export const runCpcv = async (input: CpcvInput): Promise<CpcvResult> => {
     throw new Error("cpcv: paramGrid resolved to zero combinations");
   }
 
-  const histories = await runComboHistories(combos, input, concurrency);
-
   if (input.mode === "approxSlice") {
+    const histories = await runComboHistories(combos, input, concurrency);
     return runApproxSlice(combos, histories, input, metric, ppy, startTs);
   }
-  return runExactWindowed(combos, histories, input, metric, ppy, startTs);
+  return runExactWindowed(combos, input, metric, ppy, startTs, concurrency);
 };

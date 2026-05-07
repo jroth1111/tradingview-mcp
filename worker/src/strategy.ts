@@ -150,6 +150,10 @@ export interface StrategyRunRequest {
   sessionId?: string;
   sessionSign?: string;
   endpoint?: TradingviewEndpoint;
+  // Optional Unix-seconds end-of-history pin. Threaded into the create_series
+  // 7th argument so a strategy run can be isolated to a historical period
+  // (e.g. CPCV exactWindowed per-fold runs).
+  to?: number;
 }
 
 export interface StrategyResult {
@@ -869,6 +873,7 @@ export const runStrategy = async (
     sessionId: req.sessionId,
     sessionSign: req.sessionSign,
     endpoint: req.endpoint,
+    to: req.to,
   };
 
   const studyResult = await runStudy(studyReq);

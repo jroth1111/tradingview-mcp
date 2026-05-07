@@ -293,6 +293,116 @@ describe("cpcv-runner", () => {
     }
   });
 
+  it("exactWindowed makes 1 boundary run + |combos|*N per-fold runs", async () => {
+    runStrategyCachedMock.mockImplementation(async (req: StrategyRunRequest) =>
+      synthesize({
+        bars: 200,
+        driftFn: (_i, fold) => 0.05 + 0.01 * fold,
+      }),
+    );
+    await runCpcv(
+      baseInput({
+        mode: "exactWindowed",
+        paramGrid: { p: [1, 2, 3] }, // 3 combos
+        N: 4,
+      }),
+    );
+    // 1 boundary discovery + 3 combos * 4 folds = 13 cached calls.
+    expect(runStrategyCachedMock).toHaveBeenCalledTimes(1 + 3 * 4);
+  });
+
+  it("exactWindowed per-fold calls pass to=foldEndTs[f] and bars=warmup+(f+1)*foldWidth", async () => {
+    const captured: Array<{ to?: number; bars?: number }> = [];
+    runStrategyCachedMock.mockImplementation(async (req: StrategyRunRequest) => {
+      captured.push({ to: req.to, bars: req.bars });
+      return synthesize({
+        bars: 200,
+        driftFn: (_i, _f) => 0.1,
+      });
+    });
+    await runCpcv(
+      baseInput({
+        mode: "exactWindowed",
+        paramGrid: { p: [1, 2] }, // 2 combos
+        N: 4,
+        warmupBars: 25,
+      }),
+    );
+    // First call is the boundary discovery — bars = warmup + requestedTotalBars (1000), to undefined.
+    expect(captured[0].to).toBeUndefined();
+    expect(captured[0].bars).toBe(25 + 1000);
+    // Subsequent 8 calls are per-fold cells (combos × N). Each must have a
+    // numeric `to` and bars = warmup + (f+1)*foldWidth.
+    // foldWidth = floor((200 - 25)/4) = 43.
+    const foldWidth = Math.floor((200 - 25) / 4);
+    const cellCalls = captured.slice(1);
+    expect(cellCalls).toHaveLength(2 * 4);
+    for (const call of cellCalls) {
+      expect(typeof call.to).toBe("number");
+      expect(Number.isFinite(call.to as number)).toBe(true);
+    }
+    // bars must take exactly 4 distinct values across the 2 combos × 4 folds,
+    // matching warmup + (f+1)*foldWidth for f in 0..3.
+    const expectedBars = new Set([
+      25 + 1 * foldWidth,
+      25 + 2 * foldWidth,
+      25 + 3 * foldWidth,
+      25 + 4 * foldWidth,
+    ]);
+    const actualBars = new Set(cellCalls.map((c) => c.bars));
+    expect(actualBars).toEqual(expectedBars);
+  });
+
+  it("exactWindowed OOS distribution uses test-fold metrics (not IS-winner full-history)", async () => {
+    // Combo p=1 wins folds 0,1; combo p=2 wins folds 2,3 by construction.
+    // Splits with train={0,1}, test={2,3} should pick p=1 IS-winner whose
+    // OOS (mean of folds 2,3) is materially LOWER than its IS mean.
+    // If the prior bug (IS-winner full-history metric instead of test folds)
+    // were still present, the OOS distribution would equal the IS distribution.
+    runStrategyCachedMock.mockImplementation(async (req: StrategyRunRequest) => {
+      const param = (req.params?.p ?? 1) as number;
+      return synthesize({
+        bars: 200,
+        // p=1 wins folds 0,1 and loses folds 2,3. p=2 is the inverse.
+        // Use alternating drift with a net bias so returns are mixed (giving
+        // non-zero downside deviation needed for finite Sortino) but the
+        // net direction matches the fold label.
+        driftFn: (i, fold) => {
+          const isWinFold = param === 1 ? fold < 2 : fold >= 2;
+          const oscillator = i % 2 === 0 ? 0.5 : -0.3;
+          return isWinFold ? oscillator : -oscillator;
+        },
+      });
+    });
+    const out = await runCpcv(
+      baseInput({
+        mode: "exactWindowed",
+        paramGrid: { p: [1, 2] },
+        N: 4,
+        k: 2,
+      }),
+    );
+    expect(out.oosSortinoDistribution).toBeDefined();
+    expect(out.oosSortinoDistribution!.length).toBeGreaterThan(0);
+    // Per-fold metrics for combo 0 (p=1) on folds 2,3 are negative (loss
+    // streak). On any split with test={2,3} and IS-winner=combo 0, the OOS
+    // sortino should be negative — proving the OOS draw uses test-fold
+    // metrics, not the full-history blend.
+    const combo0FoldMetrics = out.perFoldMetrics[0];
+    const combo1FoldMetrics = out.perFoldMetrics[1];
+    // Sanity: combo 0 win on folds 0,1; lose on folds 2,3.
+    expect(combo0FoldMetrics[0]).toBeGreaterThan(0);
+    expect(combo0FoldMetrics[1]).toBeGreaterThan(0);
+    expect(combo0FoldMetrics[2]).toBeLessThan(0);
+    expect(combo0FoldMetrics[3]).toBeLessThan(0);
+    // Combo 1 (p=2) is the inverse.
+    expect(combo1FoldMetrics[0]).toBeLessThan(0);
+    expect(combo1FoldMetrics[3]).toBeGreaterThan(0);
+    // OOS distribution must contain at least one negative draw — that's the
+    // signature of a test-fold-based metric for an IS-winner that loses OOS.
+    expect(out.oosSortinoDistribution!.some((v) => v < 0)).toBe(true);
+  });
+
   it("throws cpcv_insufficient_history when equity is shorter than N folds", async () => {
     runStrategyCachedMock.mockImplementation(async () =>
       synthesize({ bars: 3, driftFn: () => 0.1 }),

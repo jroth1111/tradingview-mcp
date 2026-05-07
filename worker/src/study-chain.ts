@@ -88,6 +88,7 @@ export interface StudyChainRequest {
   timeoutMs?: number;
   barLimitMode?: BarLimitMode;
   barLimitPlan?: BarLimitPlan;
+  to?: number; // optional Unix-seconds end-of-history pin
 }
 
 export interface StudyChainResultEntry {
@@ -633,7 +634,7 @@ export const runStudyChain = async (req: StudyChainRequest): Promise<StudyChainR
         "sds_sym_1",
         timeframe,
         bars,
-        "",
+        typeof req.to === "number" && Number.isFinite(req.to) ? req.to : "",
       ]);
       // create_study calls fire after series_completed in the subscriber.
     } catch (err) {

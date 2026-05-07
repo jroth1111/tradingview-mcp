@@ -533,6 +533,8 @@ export interface PboDetail {
   trainBestIdx: number;       // IS-winning combo index
   oosRankFraction: number;     // (rank of winner OOS among all combos) / (C+1)
   logit: number;               // log(omega / (1-omega))
+  trainFolds: readonly number[]; // fold indices used as IS for this split
+  testFolds: readonly number[];  // fold indices used as OOS for this split
 }
 
 export interface PboResult {
@@ -636,7 +638,13 @@ export const computePbo = (input: PboInput): PboResult => {
     const logit = Math.log(omega / (1 - omega));
     if (logit < 0) belowMedian += 1;
     evaluated += 1;
-    details.push({ trainBestIdx: bestIdx, oosRankFraction: omega, logit });
+    details.push({
+      trainBestIdx: bestIdx,
+      oosRankFraction: omega,
+      logit,
+      trainFolds: split.train,
+      testFolds: split.test,
+    });
   }
   return {
     pbo: evaluated === 0 ? 0.5 : belowMedian / evaluated,

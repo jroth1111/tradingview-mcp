@@ -902,6 +902,11 @@ export interface StudyRequest {
   inputsPreShaped?: boolean;
   barLimitMode?: BarLimitMode;
   barLimitPlan?: BarLimitPlan;
+  // Optional Unix-seconds end-of-history pin. Passed as the 7th create_series
+  // argument so TV anchors the bar window to this timestamp (data flows
+  // backward from `to` rather than from "now"). Used by CPCV exactWindowed
+  // mode to run a strategy isolated to a fold's end.
+  to?: number;
 }
 
 export interface StudyPlot {
@@ -1220,7 +1225,7 @@ export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
         "sds_sym_1",
         timeframe,
         bars,
-        "",
+        typeof req.to === "number" && Number.isFinite(req.to) ? req.to : "",
       ]);
       // create_study fires after series_completed in the subscriber.
     } catch (err) {
