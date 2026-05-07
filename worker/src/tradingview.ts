@@ -4,30 +4,35 @@
 import { RawWebSocket } from "./tv-raw-socket";
 import {
   TIMEFRAME_MAP,
-  TRADINGVIEW_BASICSTUDIES_VERSION,
   TRADINGVIEW_PINE_SCRIPT_WIRE_ID,
-  TRADINGVIEW_PINE_STRATEGY_WIRE_ID,
   TRADINGVIEW_WS_ENDPOINTS,
   VALID_TIMEFRAMES,
   buildChartSessionWsUrl,
+  buildInputsDict,
+  buildStudyPlots,
   clampBarCount,
   frameTradingViewMessage,
+  generateSessionId,
   isPineFlowWireId,
-  normalizeTradingViewPayload,
+  isUnixSeconds,
+  parseMessage,
+  resolveStudyWireId,
   type BarLimitMode,
   type BarLimitPlan,
+  type ResolvedWireId,
+  type StudyPlot,
   type TradingviewEndpoint,
 } from "../../packages/tradingview-core/src";
 import { UpstreamError, toUpstreamError } from "./upstream-error";
 
-export type { Candle } from "../../packages/tradingview-core/src";
+export type { Candle, StudyPlot } from "../../packages/tradingview-core/src";
 import type { Candle } from "../../packages/tradingview-core/src";
 
-type TradingviewEvent = { name: string; params: any[] };
-type Subscriber = (event: TradingviewEvent) => void;
-type Unsubscriber = () => void;
+export type TradingviewEvent = { name: string; params: any[] };
+export type Subscriber = (event: TradingviewEvent) => void;
+export type Unsubscriber = () => void;
 
-interface TradingviewConnection {
+export interface TradingviewConnection {
   subscribe: (handler: Subscriber) => Unsubscriber;
   send: (name: string, params: any[]) => void;
   close: () => Promise<void>;
@@ -47,11 +52,6 @@ export interface CandleRequest {
   barLimitPlan?: BarLimitPlan;
 }
 
-// Handles Engine.IO / Socket.IO prefixes and returns the segment that contains TradingView netstrings.
-const normalizePayload = (payload: string) => {
-  return normalizeTradingViewPayload(payload);
-};
-
 export const listTimeframes = () => Array.from(VALID_TIMEFRAMES);
 
 export const validateTimeframe = (tf: string | number): string => {
@@ -61,9 +61,6 @@ export const validateTimeframe = (tf: string | number): string => {
   if (mapped) return mapped;
   throw new Error(`Invalid timeframe: ${tf}`);
 };
-
-const generateSessionId = (prefix: string) =>
-  `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
 const processRawCandles = (raw: any[], amount?: number): Candle[] => {
   const slice = amount ? raw.slice(0, amount) : raw;
@@ -85,22 +82,6 @@ export const trimIncomingCandlesForBatch = <T>(
   if (incoming.length <= batchSize) return incoming;
   if (existing.length === 0) return incoming.slice(0, batchSize);
   return incoming.slice(0, -existing.length);
-};
-
-const parseMessage = (message: string) => {
-  if (!message) return [];
-  const normalized = normalizePayload(message.toString());
-  return normalized
-    .split(/~m~\d+~m~/)
-    .slice(1)
-    .map((event) => {
-      if (event.startsWith("~h~")) {
-        return { type: "ping", data: `~m~${event.length}~m~${event}` };
-      }
-      const parsed = JSON.parse(event);
-      if (parsed["session_id"]) return { type: "session", data: parsed };
-      return { type: "event", data: parsed };
-    });
 };
 
 export const getAuthToken = async (sessionId?: string, sessionSign?: string): Promise<string> => {
@@ -149,7 +130,7 @@ export const getAuthToken = async (sessionId?: string, sessionSign?: string): Pr
   return "unauthorized_user_token";
 };
 
-const connect = async (opts: {
+export const connect = async (opts: {
   sessionId?: string;
   sessionSign?: string;
   endpoint?: TradingviewEndpoint;
@@ -930,14 +911,6 @@ export interface StudyRequest {
   to?: number;
 }
 
-export interface StudyPlot {
-  id: string;
-  name: string;
-  title: string;
-  type: string;
-  data: Array<{ ts: number; value: any }>;
-}
-
 export interface StudyResult {
   symbol: string;
   studyId: string;
@@ -948,200 +921,6 @@ export interface StudyResult {
   plots: StudyPlot[];
   nonseries?: Record<string, any>;
 }
-
-const SOURCE_ALIASES = new Set([
-  "open",
-  "high",
-  "low",
-  "close",
-  "hl2",
-  "hlc3",
-  "ohlc4",
-  "volume",
-]);
-
-interface ResolvedWireId {
-  wireId: string;
-  version: string;
-  // For Pine scripts (PUB;/USER;), the underlying Pine identity that must be
-  // injected into the create_study inputs dict alongside the encrypted IL.
-  pineId?: string;
-}
-
-const resolveStudyWireId = async (
-  rawId: string,
-  sessionId?: string,
-  sessionSign?: string,
-): Promise<ResolvedWireId> => {
-  // Already qualified — pass through verbatim. Callers that pre-qualify a wire
-  // id are asserting an exact format; respect it.
-  if (rawId.includes("@")) {
-    const versionMatch = rawId.match(/@[a-z-]+-([0-9.]+)!?$/);
-    return { wireId: rawId, version: versionMatch?.[1] ?? "last" };
-  }
-
-  // Pine scripts (PUB;<hash>, USER;<hash>) all execute through the framework
-  // slot Script@tv-scripting-101!. Script identity is carried via inputs.pineId
-  // and inputs.text (the encrypted IL fetched from pine-facade/translate).
-  if (rawId.startsWith("PUB;") || rawId.startsWith("USER;")) {
-    const headers: Record<string, string> = {};
-    if (sessionId) {
-      headers["cookie"] = sessionSign
-        ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
-        : `sessionid=${sessionId}`;
-    }
-    let version = "1.0";
-    try {
-      const resp = await fetch(
-        `https://pine-facade.tradingview.com/pine-facade/versions/${encodeURIComponent(rawId)}/last`,
-        { headers },
-      );
-      if (resp.ok) {
-        const data: any = await resp.json();
-        const v = Array.isArray(data) ? data[0]?.version : data?.version;
-        if (v != null) version = String(v);
-      }
-    } catch {
-      // tolerate network blips; "1.0" is the most common Pine version
-    }
-    return { wireId: TRADINGVIEW_PINE_SCRIPT_WIRE_ID, version, pineId: rawId };
-  }
-
-  // Built-in studies bifurcate into two families on the modern TV gateway
-  // (verified 2026-05-07 via Camoufox web-client trace + std-pine-flow-probe.mjs):
-  //   • Pine-backed: EMA/SMA/WMA/VWMA/RSI/MACD/ATR/ADX/Stochastic/CCI/ROC/PSAR/
-  //     Volume/VWAP/Ichimoku and many more. The web client dispatches these via
-  //     Script@tv-scripting-101! with inputs.pineId="STD;<canonical_name>" and
-  //     inputs.text=<ilTemplate from pine-facade/translate>.
-  //   • Definition-bundle-only: BB/StochasticRSI/MOM/OBV/PivotPointsHighLow/
-  //     PivotPointsStandard/Dividends/Splits/Earnings. These return 404 from
-  //     pine-facade/translate and only work via <bareId>@tv-basicstudies-265.
-  // Strategy: probe pine-facade/translate first; if it returns ilTemplate, use
-  // the Pine flow (and pick StrategyScript wire when metaInfo.is_strategy);
-  // otherwise fall back to the basicstudies-265 form.
-  const pineIdForm = rawId.startsWith("STD;") ? rawId : `STD;${rawId}`;
-  const bareId = rawId.startsWith("STD;") ? rawId.slice(4) : rawId;
-  try {
-    const headers: Record<string, string> = {};
-    if (sessionId) {
-      headers["cookie"] = sessionSign
-        ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
-        : `sessionid=${sessionId}`;
-    }
-    const resp = await fetch(
-      `https://pine-facade.tradingview.com/pine-facade/translate/${encodeURIComponent(pineIdForm)}/last`,
-      { headers },
-    );
-    if (resp.ok) {
-      const data: any = await resp.json();
-      const ilTemplate = data?.result?.ilTemplate ?? data?.result?.IL;
-      if (data?.success && ilTemplate) {
-        const isStrategy = data?.result?.metaInfo?.is_strategy === true;
-        const wireId = isStrategy
-          ? TRADINGVIEW_PINE_STRATEGY_WIRE_ID
-          : TRADINGVIEW_PINE_SCRIPT_WIRE_ID;
-        const version = String(
-          data?.result?.metaInfo?.pine?.version ??
-            data?.result?.metaInfo?.version ??
-            "1.0",
-        );
-        return { wireId, version, pineId: pineIdForm };
-      }
-    }
-  } catch {
-    // Network blip → fall through to basicstudies form. The legacy bundle
-    // path remains valid for studies TV hasn't migrated to Pine.
-  }
-  return {
-    wireId: `${bareId}@tv-basicstudies-${TRADINGVIEW_BASICSTUDIES_VERSION}`,
-    version: TRADINGVIEW_BASICSTUDIES_VERSION,
-  };
-};
-
-const buildInputsDict = (
-  rawInputs: Record<string, any> | undefined,
-  paramsByName: Record<string, any> | undefined,
-  meta: { inputs: any[] } | null,
-  parentSeriesId: string,
-): Record<string, any> => {
-  const inputs: Record<string, any> = { ...(rawInputs ?? {}) };
-
-  if (paramsByName && meta) {
-    for (const [name, value] of Object.entries(paramsByName)) {
-      const found = (meta.inputs || []).find((mi: any) => mi.name === name || mi.id === name);
-      if (!found) continue;
-      inputs[found.id] = value;
-    }
-  }
-
-  if (meta) {
-    for (const mi of meta.inputs || []) {
-      const id = mi.id as string;
-      if (!(id in inputs)) continue;
-      const t = (mi.type as string) || "";
-      const v = inputs[id];
-      // Source-typed: rewrite friendly aliases into "<seriesId>$<plotName>"
-      if (t === "source" && typeof v === "string") {
-        if (SOURCE_ALIASES.has(v)) {
-          inputs[id] = `${parentSeriesId}$${v}`;
-        }
-      }
-      // Symbol-typed: wrap bare strings in {type:"symbol", value}
-      if (t === "symbol" && typeof v === "string") {
-        inputs[id] = { type: "symbol", value: v };
-      }
-    }
-  }
-
-  return inputs;
-};
-
-const isUnixSeconds = (n: any): boolean =>
-  typeof n === "number" && n > 1_000_000_000 && n < 4_000_000_000;
-
-const buildStudyPlots = (
-  meta: { plots?: any[]; metaInfo?: any } | null,
-  rowsBySlot: Record<string, Array<{ i: number; v: any[] }>>,
-  studySlot: string,
-  seriesIndexToTs: Map<number, number>,
-): StudyPlot[] => {
-  const rows = rowsBySlot[studySlot] || [];
-  if (rows.length === 0) return [];
-
-  const sortedRows = [...rows].sort((a, b) => a.i - b.i);
-  // Detect whether v[0] looks like a unix-seconds timestamp.
-  const sample = sortedRows[0]?.v ?? [];
-  const tsIsFirst = sample.length > 0 && isUnixSeconds(sample[0]);
-
-  const plotDefs = (meta?.plots || []).filter((p: any) => p?.type !== "no_series");
-  const styles: Record<string, any> = meta?.metaInfo?.styles || {};
-  const numPlotChannels = tsIsFirst ? sample.length - 1 : sample.length;
-  const plotCount = plotDefs.length || numPlotChannels;
-
-  const plots: StudyPlot[] = [];
-  for (let pi = 0; pi < plotCount; pi += 1) {
-    const def = plotDefs[pi] || {};
-    const plotId = def.id || `plot_${pi}`;
-    const title = styles[plotId]?.title || def.title || plotId;
-    const data: Array<{ ts: number; value: any }> = [];
-    for (const row of sortedRows) {
-      const ts = tsIsFirst
-        ? Number(row.v[0])
-        : (seriesIndexToTs.get(row.i) ?? row.i);
-      const value = tsIsFirst ? row.v[pi + 1] : row.v[pi];
-      if (value == null) continue;
-      data.push({ ts, value });
-    }
-    plots.push({
-      id: plotId,
-      name: title,
-      title,
-      type: def.type || "line",
-      data,
-    });
-  }
-  return plots;
-};
 
 export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
   if (!req.symbol || !req.studyId) {
@@ -1258,7 +1037,7 @@ export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
       wireId,
       timeframe,
       bars,
-      plots: buildStudyPlots(meta, rowsBySlot, studySlot, seriesIndexToTs),
+      plots: buildStudyPlots(meta, rowsBySlot[studySlot] || [], seriesIndexToTs),
       nonseries: nonseriesBySlot[studySlot],
     });
 

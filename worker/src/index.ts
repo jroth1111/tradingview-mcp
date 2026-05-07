@@ -777,7 +777,6 @@ app.get("/", (c) =>
       "/v1/chart-session/create",
       "/v1/chart-session/study/create",
       "/v1/chart-session/study/modify",
-      "/v1/chart-session/replay/step",
       "/v1/chart-session/close",
       "/v1/study/remove",
       "/v1/study/metadata",
@@ -2850,29 +2849,6 @@ app.post("/v1/chart-session/study/modify", async (c) => {
     }, tokenOrErr);
   } catch (err: any) {
     return routeError(c, err, "chart-session study modify failed");
-  }
-});
-
-app.post("/v1/chart-session/replay/step", async (c) => {
-  try {
-    const authResp = await verifyHmacAuth(c);
-    if (authResp) return authResp;
-    const body = (await c.req.json()) as {
-      sessionToken?: string;
-      direction: "forward" | "backward";
-      bars?: number;
-    };
-    const tokenOrErr = requireSessionToken(body);
-    if (typeof tokenOrErr !== "string") return tokenOrErr;
-    if (body?.direction !== "forward" && body?.direction !== "backward") {
-      return c.json({ error: "direction must be 'forward' or 'backward'" }, 400);
-    }
-    return await forwardToChartSession(c, "/replay/step", {
-      direction: body.direction,
-      bars: body.bars,
-    }, tokenOrErr);
-  } catch (err: any) {
-    return routeError(c, err, "chart-session replay step failed");
   }
 });
 

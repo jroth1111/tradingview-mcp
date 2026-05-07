@@ -162,7 +162,7 @@ if (!coreImportRegex.test(workerTradingview)) {
 }
 
 for (const required of ["TRADINGVIEW_WS_ENDPOINTS", "VALID_TIMEFRAMES", "TIMEFRAME_MAP"]) {
-  const importPattern = new RegExp(`\\b${required}\\b[\\s\\S]{0,400}?from\\s+["']\\.\\.\/\\.\\.\/packages\/tradingview-core\/src["']`);
+  const importPattern = new RegExp(`\\b${required}\\b[\\s\\S]{0,1500}?from\\s+["']\\.\\.\/\\.\\.\/packages\/tradingview-core\/src["']`);
   if (!importPattern.test(workerTradingview)) {
     throw new Error(`worker/src/tradingview.ts must import ${required} from packages/tradingview-core/src`);
   }

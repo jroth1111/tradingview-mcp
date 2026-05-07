@@ -3,38 +3,43 @@
 // One DO instance owns one TradingView WebSocket and one chart session for
 // the lifetime of an iteration loop. It exposes JSON sub-routes the Worker
 // fetches via stub.fetch(): /create, /study/create, /study/modify,
-// /replay/step, /close. This lets the UI debounce study-input edits, build
-// study-on-study chains, step through replay, and iterate Pine code without
-// re-establishing the upstream WS on every call.
-//
-// WebSocket plumbing (connect/auth/parse) duplicated from
-// worker/src/tradingview.ts because `connect` is not exported there. When
-// tradingview.ts exposes `connect` (and `parseMessage`/`getAuthToken`), swap
-// to the shared primitive.
+// /study/remove, /replay/{start,stop,set-resolution,get-depth},
+// /series/{modify,timeframe}, /quality, /timezone, /quote/hibernate,
+// /pointset/{create,modify,remove}, /close. This lets the UI debounce
+// study-input edits, build study-on-study chains, and iterate Pine code
+// without re-establishing the upstream WS on every call.
 //
 // State is in-memory only: this v1 does not persist slots or the session
 // token across DO hibernation. If hibernation occurs between calls the
 // caller must /create again. Persisting via DurableObjectState.storage is a
 // follow-up (see report).
 
-import { RawWebSocket } from "./tv-raw-socket";
 import {
-  TIMEFRAME_MAP,
-  TRADINGVIEW_BASICSTUDIES_VERSION,
-  TRADINGVIEW_PINE_SCRIPT_WIRE_ID,
-  TRADINGVIEW_PINE_STRATEGY_WIRE_ID,
-  TRADINGVIEW_WS_ENDPOINTS,
-  VALID_TIMEFRAMES,
-  buildChartSessionWsUrl,
+  buildInputsDict,
+  buildStudyPlots,
   clampBarCount,
-  frameTradingViewMessage,
+  generateSessionId,
   isPineFlowWireId,
-  normalizeTradingViewPayload,
+  isUnixSeconds,
+  resolveStudyWireId,
   type BarLimitMode,
   type BarLimitPlan,
+  type IndicatorMetaShape,
+  type ResolvedWireId,
+  type StudyPlot,
   type TradingviewEndpoint,
 } from "../../packages/tradingview-core/src";
+import {
+  connect,
+  getIndicatorMeta,
+  validateTimeframe,
+  type TradingviewConnection,
+  type TradingviewEvent,
+} from "./tradingview";
 import { decodeWSEvent } from "./ws-events";
+
+export type { StudyPlot } from "../../packages/tradingview-core/src";
+export type { TradingviewConnection } from "./tradingview";
 
 // === Public types ===
 
@@ -65,13 +70,6 @@ export interface StudyCreateRequest {
   timeoutMs?: number;
 }
 
-export interface StudyPlot {
-  id: string;
-  name: string;
-  type: string;
-  data: Array<{ ts: number; value: any }>;
-}
-
 export interface StudyCreateResponse {
   ok: true;
   slotName: string;
@@ -95,18 +93,6 @@ export interface StudyModifyResponse {
   nonseries?: Record<string, any>;
 }
 
-export interface ReplayStepRequest {
-  direction: "forward" | "backward";
-  bars?: number;
-}
-
-export interface ReplayStepResponse {
-  ok: true;
-  direction: "forward" | "backward";
-  bars: number;
-  barsAdvanced: number;
-}
-
 export interface SlotEntry {
   slotName: string;
   studyId: string;
@@ -115,7 +101,7 @@ export interface SlotEntry {
   parentSlot: string;
   /** Bumped on each modify_study send so the upstream sees a fresh turnaround cookie. */
   turnaround: number;
-  meta: { inputs: any[]; plots: any[] } | null;
+  meta: IndicatorMetaShape | null;
   /** Last-known input wire dict for the slot; merged with new inputs on modify. */
   lastInputs: Record<string, any>;
 }
@@ -132,17 +118,7 @@ export interface ChartSessionState {
   slots: SlotEntry[];
 }
 
-// === Internal types (mirroring tradingview.ts) ===
-
-type TradingviewEvent = { name: string; params: any[] };
-type Subscriber = (event: TradingviewEvent) => void;
-type Unsubscriber = () => void;
-
-export interface TradingviewConnection {
-  subscribe: (handler: Subscriber) => Unsubscriber;
-  send: (name: string, params: any[]) => void;
-  close: () => Promise<void>;
-}
+// === Test-seam types ===
 
 export type ConnectFactory = (opts: {
   sessionId?: string;
@@ -151,383 +127,11 @@ export type ConnectFactory = (opts: {
   timeoutMs?: number;
 }) => Promise<TradingviewConnection>;
 
-interface ResolvedWireId {
-  wireId: string;
-  version: string;
-  pineId?: string;
-}
-
-interface IndicatorMetaLike {
-  inputs: any[];
-  plots: any[];
-  script?: string;
-  version?: string;
-}
-
-const SOURCE_ALIASES = new Set([
-  "open",
-  "high",
-  "low",
-  "close",
-  "hl2",
-  "hlc3",
-  "ohlc4",
-  "volume",
-]);
-
-const generateSessionId = (prefix: string) =>
-  `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-
-const validateTimeframe = (tf: string | number): string => {
-  const tfStr = typeof tf === "number" ? tf.toString() : tf;
-  if (VALID_TIMEFRAMES.has(tfStr)) return tfStr;
-  const mapped = TIMEFRAME_MAP.get(tfStr.toLowerCase());
-  if (mapped) return mapped;
-  throw new Error(`Invalid timeframe: ${tf}`);
-};
-
-const isUnixSeconds = (n: any): boolean =>
-  typeof n === "number" && n > 1_000_000_000 && n < 4_000_000_000;
-
-// === WebSocket plumbing (duplicated from tradingview.ts) ===
-
-const parseMessage = (message: string) => {
-  if (!message) return [];
-  const normalized = normalizeTradingViewPayload(message.toString());
-  return normalized
-    .split(/~m~\d+~m~/)
-    .slice(1)
-    .map((event) => {
-      if (event.startsWith("~h~")) {
-        return { type: "ping" as const, data: `~m~${event.length}~m~${event}` };
-      }
-      const parsed = JSON.parse(event);
-      if (parsed["session_id"]) return { type: "session" as const, data: parsed };
-      return { type: "event" as const, data: parsed };
-    });
-};
-
-const getAuthToken = async (sessionId?: string, sessionSign?: string): Promise<string> => {
-  if (!sessionId) return "unauthorized_user_token";
-  const cookie = sessionSign
-    ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
-    : `sessionid=${sessionId}`;
-  try {
-    const resp = await fetch("https://www.tradingview.com/disclaimer/", {
-      method: "GET",
-      headers: {
-        Cookie: cookie,
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        Referer: "https://www.tradingview.com/",
-      },
-    });
-    if (!resp.ok) return "unauthorized_user_token";
-    const text = await resp.text();
-    const match = text.match(/"auth_token":"(.+?)"/);
-    return match ? match[1] : "unauthorized_user_token";
-  } catch {
-    return "unauthorized_user_token";
-  }
-};
-
-const defaultConnect: ConnectFactory = async (opts) => {
-  const preferred =
-    opts.endpoint && TRADINGVIEW_WS_ENDPOINTS[opts.endpoint] ? opts.endpoint : "prodata";
-  const fallback = (Object.keys(TRADINGVIEW_WS_ENDPOINTS) as TradingviewEndpoint[]).filter(
-    (k) => k !== preferred,
-  );
-  const attempts = [preferred, ...fallback];
-  const token = await getAuthToken(opts.sessionId, opts.sessionSign);
-  let lastError: any;
-
-  for (const ep of attempts) {
-    const wsUrl = buildChartSessionWsUrl(ep);
-    const socket = new RawWebSocket(wsUrl, {
-      sessionId: opts.sessionId,
-      sessionSign: opts.sessionSign,
-    });
-    const subscribers = new Set<Subscriber>();
-
-    const subscribe = (handler: Subscriber): Unsubscriber => {
-      subscribers.add(handler);
-      return () => subscribers.delete(handler);
-    };
-
-    const send = (name: string, params: any[]) => {
-      const framed = frameTradingViewMessage(name, params);
-      socket.sendText(framed).catch(() => {});
-    };
-
-    const close = async () => {
-      subscribers.clear();
-      await socket.close();
-    };
-
-    try {
-      const connection = await new Promise<TradingviewConnection>((resolve, reject) => {
-        let ready = false;
-        const timeout = setTimeout(() => {
-          if (!ready) {
-            socket.close().catch(() => {});
-            reject(new Error("Connection timeout to TradingView"));
-          }
-        }, opts.timeoutMs ?? 10000);
-
-        socket.onError = (err) => {
-          if (!ready) {
-            clearTimeout(timeout);
-            reject(err);
-          }
-        };
-        socket.onClose = (err) => {
-          if (!ready) {
-            clearTimeout(timeout);
-            reject(err ?? new Error("Connection closed"));
-          }
-        };
-        socket.onText = (text) => {
-          if (text === "2") {
-            socket.sendText("3").catch(() => {});
-            return;
-          }
-          const payloads = parseMessage(text);
-          for (const payload of payloads) {
-            switch (payload.type) {
-              case "ping":
-                socket.sendText(payload.data).catch(() => {});
-                break;
-              case "session":
-                ready = true;
-                clearTimeout(timeout);
-                send("set_auth_token", [token]);
-                send("set_locale", ["en", "US"]);
-                resolve({ subscribe, send, close });
-                break;
-              case "event":
-                subscribers.forEach((handler) =>
-                  handler({ name: payload.data.m, params: payload.data.p }),
-                );
-                break;
-            }
-          }
-        };
-
-        socket.connect(opts.timeoutMs ?? 10000).catch((err) => {
-          clearTimeout(timeout);
-          reject(err);
-        });
-      });
-
-      return connection;
-    } catch (err) {
-      lastError = err;
-      await socket.close().catch(() => {});
-      await new Promise((r) => setTimeout(r, 50));
-      continue;
-    }
-  }
-
-  throw lastError || new Error("Failed to connect to any TradingView endpoint");
-};
-
 // Test seam: lets unit tests inject a fake connection without touching the real
-// WS layer. Production callers never set this; defaults to defaultConnect.
-let connectFactory: ConnectFactory = defaultConnect;
+// WS layer. Production callers never set this; defaults to the shared `connect`.
+let connectFactory: ConnectFactory = connect;
 export const _setConnectFactoryForTests = (factory: ConnectFactory | null) => {
-  connectFactory = factory ?? defaultConnect;
-};
-
-// === Pine-facade helpers (mirrored from tradingview.ts) ===
-
-const resolveStudyWireId = async (
-  rawId: string,
-  sessionId?: string,
-  sessionSign?: string,
-): Promise<ResolvedWireId> => {
-  if (rawId.includes("@")) {
-    const versionMatch = rawId.match(/@[a-z-]+-([0-9]+)!?$/);
-    return { wireId: rawId, version: versionMatch?.[1] ?? "last" };
-  }
-
-  if (rawId.startsWith("PUB;") || rawId.startsWith("USER;")) {
-    const headers: Record<string, string> = {};
-    if (sessionId) {
-      headers["cookie"] = sessionSign
-        ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
-        : `sessionid=${sessionId}`;
-    }
-    const versionsUrl = `https://pine-facade.tradingview.com/pine-facade/versions/${encodeURIComponent(rawId)}/last`;
-    let version = "1.0";
-    try {
-      const resp = await fetch(versionsUrl, { headers });
-      if (resp.ok) {
-        const data: any = await resp.json();
-        const v = Array.isArray(data) ? data[0]?.version : data?.version;
-        if (v != null) version = String(v);
-      }
-    } catch {
-      // version lookup is best-effort; the chart loader accepts "1.0" as a default.
-    }
-    return { wireId: TRADINGVIEW_PINE_SCRIPT_WIRE_ID, version, pineId: rawId };
-  }
-
-  // Built-in studies bifurcate into two families on the modern TV gateway
-  // (verified 2026-05-07 via Camoufox web-client trace + std-pine-flow-probe.mjs):
-  //   • Pine-backed: EMA/SMA/WMA/VWMA/RSI/MACD/ATR/ADX/Stochastic/CCI/ROC/PSAR/
-  //     Volume/VWAP/Ichimoku and many more. The web client dispatches these via
-  //     Script@tv-scripting-101! with inputs.pineId="STD;<canonical_name>" and
-  //     inputs.text=<ilTemplate from pine-facade/translate>.
-  //   • Definition-bundle-only: BB/StochasticRSI/MOM/OBV/PivotPointsHighLow/
-  //     PivotPointsStandard/Dividends/Splits/Earnings. These return 404 from
-  //     pine-facade/translate and only work via <bareId>@tv-basicstudies-265.
-  // Strategy: probe pine-facade/translate first; if it returns ilTemplate, use
-  // the Pine flow (and pick StrategyScript wire when metaInfo.is_strategy);
-  // otherwise fall back to the basicstudies-265 form.
-  const pineIdForm = rawId.startsWith("STD;") ? rawId : `STD;${rawId}`;
-  const bareId = rawId.startsWith("STD;") ? rawId.slice(4) : rawId;
-  try {
-    const headers: Record<string, string> = {};
-    if (sessionId) {
-      headers["cookie"] = sessionSign
-        ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
-        : `sessionid=${sessionId}`;
-    }
-    const resp = await fetch(
-      `https://pine-facade.tradingview.com/pine-facade/translate/${encodeURIComponent(pineIdForm)}/last`,
-      { headers },
-    );
-    if (resp.ok) {
-      const data: any = await resp.json();
-      const ilTemplate = data?.result?.ilTemplate ?? data?.result?.IL;
-      if (data?.success && ilTemplate) {
-        const isStrategy = data?.result?.metaInfo?.is_strategy === true;
-        const wireId = isStrategy
-          ? TRADINGVIEW_PINE_STRATEGY_WIRE_ID
-          : TRADINGVIEW_PINE_SCRIPT_WIRE_ID;
-        const version = String(
-          data?.result?.metaInfo?.pine?.version ??
-            data?.result?.metaInfo?.version ??
-            "1.0",
-        );
-        return { wireId, version, pineId: pineIdForm };
-      }
-    }
-  } catch {
-    // Network blip → fall through to basicstudies form.
-  }
-  return {
-    wireId: `${bareId}@tv-basicstudies-${TRADINGVIEW_BASICSTUDIES_VERSION}`,
-    version: TRADINGVIEW_BASICSTUDIES_VERSION,
-  };
-};
-
-const fetchIndicatorMeta = async (
-  studyId: string,
-  sessionId?: string,
-  sessionSign?: string,
-): Promise<IndicatorMetaLike | null> => {
-  const id = studyId.split("@")[0];
-  if (!id) return null;
-  const indicId = id.replace(/ |%/g, "%25");
-  const headers: Record<string, string> = {};
-  if (sessionId) {
-    headers["cookie"] = sessionSign
-      ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
-      : `sessionid=${sessionId}`;
-  }
-  try {
-    const resp = await fetch(
-      `https://pine-facade.tradingview.com/pine-facade/translate/${indicId}/last`,
-      { headers },
-    );
-    if (!resp.ok) return null;
-    const data: any = await resp.json();
-    if (!data?.success || !data?.result?.metaInfo) return null;
-    const meta = data.result.metaInfo;
-    const script = data.result.ilTemplate ?? data.result.IL ?? undefined;
-    const version = data.result.metaInfo?.pine?.version ?? data.result.metaInfo?.version;
-    return {
-      inputs: meta.inputs || [],
-      plots: meta.plots || [],
-      script,
-      version: version != null ? String(version) : undefined,
-    };
-  } catch {
-    return null;
-  }
-};
-
-const buildInputsDict = (
-  rawInputs: Record<string, any> | undefined,
-  paramsByName: Record<string, any> | undefined,
-  meta: IndicatorMetaLike | null,
-  parentSlot: string,
-): Record<string, any> => {
-  const inputs: Record<string, any> = { ...(rawInputs ?? {}) };
-
-  if (paramsByName && meta) {
-    for (const [name, value] of Object.entries(paramsByName)) {
-      const found = (meta.inputs || []).find((mi: any) => mi.name === name || mi.id === name);
-      if (!found) continue;
-      inputs[found.id] = value;
-    }
-  }
-
-  if (meta) {
-    for (const mi of meta.inputs || []) {
-      const id = mi.id as string;
-      if (!(id in inputs)) continue;
-      const t = (mi.type as string) || "";
-      const v = inputs[id];
-      if (t === "source" && typeof v === "string" && SOURCE_ALIASES.has(v)) {
-        inputs[id] = `${parentSlot}$${v}`;
-      }
-      if (t === "symbol" && typeof v === "string") {
-        inputs[id] = { type: "symbol", value: v };
-      }
-    }
-  }
-  return inputs;
-};
-
-const buildStudyPlots = (
-  meta: IndicatorMetaLike | null,
-  rows: Array<{ i: number; v: any[] }>,
-  seriesIndexToTs: Map<number, number>,
-): StudyPlot[] => {
-  if (rows.length === 0) return [];
-  const sorted = [...rows].sort((a, b) => a.i - b.i);
-  const sample = sorted[0]?.v ?? [];
-  const tsIsFirst = sample.length > 0 && isUnixSeconds(sample[0]);
-
-  const plotDefs = (meta?.plots || []).filter((p: any) => p?.type !== "no_series");
-  const numPlotChannels = tsIsFirst ? sample.length - 1 : sample.length;
-  const plotCount = plotDefs.length || numPlotChannels;
-
-  const plots: StudyPlot[] = [];
-  for (let pi = 0; pi < plotCount; pi += 1) {
-    const def = plotDefs[pi] || {};
-    const data: Array<{ ts: number; value: any }> = [];
-    for (const row of sorted) {
-      const ts = tsIsFirst
-        ? Number(row.v[0])
-        : (seriesIndexToTs.get(row.i) ?? row.i);
-      const value = tsIsFirst ? row.v[pi + 1] : row.v[pi];
-      if (value == null) continue;
-      data.push({ ts, value });
-    }
-    plots.push({
-      id: def.id || `plot_${pi}`,
-      name: def.title || def.id || `plot_${pi}`,
-      type: def.type || "line",
-      data,
-    });
-  }
-  return plots;
+  connectFactory = factory ?? connect;
 };
 
 // === Durable Object class ===
@@ -551,9 +155,9 @@ export class ChartSession {
   private lastNsBySlot: Record<string, Record<string, any>> = {};
   private seriesIndexToTs = new Map<number, number>();
 
-  // Replay session token; lazily created on first /replay/step. Wire format
-  // for the client-sent replay verbs is partially documented (see report);
-  // implementation is best-effort and may need a recon probe to confirm.
+  // Replay session token; lazily created by ensureReplaySession() when the
+  // first /replay/* sub-route fires. Stays alive across calls so subsequent
+  // verbs reuse the same upstream replay context.
   private replaySession: string | null = null;
 
   constructor(state: DurableObjectState, env: CloudflareBindings) {
@@ -577,8 +181,6 @@ export class ChartSession {
           return await this.handleStudyModify(request);
         case "/study/remove":
           return await this.handleStudyRemove(request);
-        case "/replay/step":
-          return await this.handleReplayStep(request);
         case "/replay/start":
           return await this.handleReplayStart(request);
         case "/replay/stop":
@@ -773,11 +375,11 @@ export class ChartSession {
       ).catch(
         () => ({ wireId: body.studyId, version: "last" }) as ResolvedWireId,
       ),
-      fetchIndicatorMeta(
-        body.studyId,
-        this.chartSessionState.sessionId,
-        this.chartSessionState.sessionSign,
-      ),
+      getIndicatorMeta({
+        id: body.studyId.split("@")[0],
+        sessionId: this.chartSessionState.sessionId,
+        sessionSign: this.chartSessionState.sessionSign,
+      }).catch(() => null),
     ]);
 
     const inputsDict = buildInputsDict(body.inputs, body.params, meta, parentSlot);
@@ -1037,50 +639,6 @@ export class ChartSession {
     return Response.json(resp);
   }
 
-  private async handleReplayStep(request: Request): Promise<Response> {
-    if (!this.connection || !this.chartSessionState) {
-      return Response.json(
-        { error: "no active chart session; call /create first" },
-        { status: 400 },
-      );
-    }
-    let body: ReplayStepRequest;
-    try {
-      body = (await request.json()) as ReplayStepRequest;
-    } catch {
-      return Response.json({ error: "invalid JSON body" }, { status: 400 });
-    }
-    if (!body || (body.direction !== "forward" && body.direction !== "backward")) {
-      return Response.json(
-        { error: "direction must be 'forward' or 'backward'" },
-        { status: 400 },
-      );
-    }
-    const bars = Math.max(1, body.bars ?? 1);
-    // KNOWN GAP — see chart-session-do.ts header & report.
-    // The TradingView client-side wire shape for `replay_step` is documented
-    // by name only; we observed `replay_step` as a server-emitted frame with
-    // params `[replaySession, position]`. The client-sent verb has not been
-    // probed end-to-end. The shape below mirrors `replay_reset`'s 3-arg form
-    // and is the best-effort guess. When recon confirms the real shape,
-    // update this method (and remove the throw if it diverges).
-    throw new Error(
-      `replay step not implemented; awaiting wire format probe (requested direction=${body.direction}, bars=${bars})`,
-    );
-    // Once the wire is confirmed, the body roughly looks like:
-    //   if (!this.replaySession) {
-    //     this.replaySession = generateSessionId("rs_");
-    //     this.connection.send("replay_create_session", [this.replaySession]);
-    //     this.connection.send("replay_add_series", [
-    //       this.replaySession, "symbol_0", this.chartSessionState.symbol, this.chartSessionState.timeframe,
-    //     ]);
-    //   }
-    //   const stepCount = body.direction === "forward" ? bars : -bars;
-    //   await new Promise<void>((resolve, reject) => { ... wait for next timescale_update ... });
-    //   const resp: ReplayStepResponse = { ok: true, direction: body.direction, bars, barsAdvanced };
-    //   return Response.json(resp);
-  }
-
   // === P17 fire-and-forget verbs ===
   // These send a single C->S frame on the live connection and return ok
   // immediately. Any resulting frames flow through the normal `onEvent`
@@ -1250,11 +808,10 @@ export class ChartSession {
   }
 
   // === P17 replay verbs ===
-  // The DO did not previously send any client-driven replay verbs (only the
-  // partial replay_step stub). These send the documented C->S frames against
-  // a lazily-created replay session. /replay/get-depth waits for the
-  // replay_depth response (decoded via wsEvents); the rest are fire-and-
-  // forget and let resulting du/replay_* frames flow through onEvent.
+  // Send the documented C->S frames against a lazily-created replay session.
+  // /replay/get-depth waits for the replay_depth response (decoded via
+  // wsEvents); the rest are fire-and-forget and let resulting du/replay_*
+  // frames flow through onEvent.
 
   private ensureReplaySession(connection: TradingviewConnection): string {
     if (this.replaySession) return this.replaySession;

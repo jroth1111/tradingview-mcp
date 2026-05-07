@@ -3,53 +3,42 @@
 // SCOPE:
 //   - modifyStudy: short-lived re-run of a single study with new inputs. Real
 //     in-place modify (without re-establishing the chart session) requires a
-//     long-lived chart session held in a Cloudflare Durable Object. That is
-//     bead tradingview-2v6 and is intentionally out of scope here. This file
-//     is the non-DO complement.
-//   - runStudyChain: opens ONE chart session, creates a series + N studies
-//     sequentially in the same session so studies can chain (e.g. RSI of EMA
-//     where study B's parent_series_id is study A's slot "st1"), accumulates
-//     du frames per slot, and returns all results in one call.
+//     long-lived chart session held in a Cloudflare Durable Object — see
+//     ChartSession in chart-session-do.ts. This file is the non-DO complement.
+//   - runStudyChain: opens ONE chart session via the shared `connect`
+//     primitive, creates a series + N studies sequentially in the same session
+//     so studies can chain (e.g. RSI of EMA where study B's parent_series_id
+//     is study A's slot "st1"), accumulates du frames per slot, and returns
+//     all results in one call.
 //
-// DUPLICATION NOTICE:
-//   `connect` (the chart-session WebSocket primitive in tradingview.ts) is not
-//   exported. The chain implementation below re-implements the connect /
-//   subscribe / send loop locally. The duplicated section is small (~40 lines
-//   of WS bring-up plus message parsing) and mirrors:
-//     - tradingview.ts:136-247  (connect)
-//     - tradingview.ts:43-95    (parseMessage / normalizePayload)
-//     - tradingview.ts:1049-1221 (runStudy lifecycle: chart_create_session,
-//       resolve_symbol, create_series, create_study, du frame accumulator,
-//       study_completed handler)
-//   When the chart-session DO (bead tradingview-2v6) lands, this module
-//   should migrate to the DO primitive and the duplicated WS plumbing here
-//   should be deleted. See "Suggested follow-up" in the task report.
-//
-// What is intentionally re-derived locally rather than imported:
-//   - resolveStudyWireId (private): we re-derive wire id from the same rules.
-//   - buildInputsDict   (private): we re-derive friendly-input mapping and
-//     source-alias rewriting.
-//   - buildStudyPlots   (private): we re-derive plot extraction from du frames.
-//   - SOURCE_ALIASES: values copied verbatim from tradingview.ts.
+// All low-level helpers (parseMessage, generateSessionId, isUnixSeconds,
+// SOURCE_ALIASES, resolveStudyWireId, buildInputsDict, buildStudyPlots) live
+// in packages/tradingview-core/src/study-helpers.ts. The WebSocket bring-up
+// uses the shared `connect` from tradingview.ts so chain Pine studies inherit
+// the `?type=chart&auth=sessionid` URL suffix and multi-endpoint fallback.
 
 import {
+  connect,
   runStudy,
   validateTimeframe,
   getIndicatorMeta,
-  getAuthToken,
-  type StudyRequest,
-  type StudyPlot,
-  type StudyResult,
   type IndicatorMeta,
+  type StudyPlot,
+  type StudyRequest,
+  type StudyResult,
+  type TradingviewConnection,
 } from "./tradingview";
-import { RawWebSocket } from "./tv-raw-socket";
 import {
-  TRADINGVIEW_WS_ENDPOINTS,
+  buildInputsDict,
+  buildStudyPlots,
   clampBarCount,
-  frameTradingViewMessage,
-  normalizeTradingViewPayload,
+  generateSessionId,
+  isPineFlowWireId,
+  isUnixSeconds,
+  resolveStudyWireId,
   type BarLimitMode,
   type BarLimitPlan,
+  type ResolvedWireId,
   type TradingviewEndpoint,
 } from "../../packages/tradingview-core/src";
 
@@ -108,23 +97,7 @@ export interface StudyChainResult {
   studies: StudyChainResultEntry[];
 }
 
-// === Internal: types & framing copied / re-derived from tradingview.ts ====
-
-const SOURCE_ALIASES = new Set([
-  "open",
-  "high",
-  "low",
-  "close",
-  "hl2",
-  "hlc3",
-  "ohlc4",
-  "volume",
-]);
-
-interface ResolvedWireId {
-  wireId: string;
-  version: string;
-}
+// === Internal: prepared-spec shape used during chain bring-up =============
 
 interface PreparedSpec {
   spec: StudyChainSpec;
@@ -135,14 +108,6 @@ interface PreparedSpec {
   meta: IndicatorMeta | null;
   inputsDict: Record<string, any>;
 }
-
-type TVEvent = { name: string; params: any[] };
-
-const generateSessionId = (prefix: string): string =>
-  `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-
-const isUnixSeconds = (n: any): boolean =>
-  typeof n === "number" && n > 1_000_000_000 && n < 4_000_000_000;
 
 // === Internal: validation ================================================
 
@@ -194,253 +159,6 @@ export const planChainSlots = (specs: StudyChainSpec[]): Array<{ spec: StudyChai
   return out;
 };
 
-// === Internal: wire-id resolution (mirrors tradingview.ts:926) ============
-
-const resolveStudyWireId = async (
-  rawId: string,
-  sessionId?: string,
-  sessionSign?: string,
-): Promise<ResolvedWireId> => {
-  if (rawId.includes("@")) {
-    const versionMatch = rawId.match(/@[a-z-]+-([0-9]+)!?$/);
-    return { wireId: rawId, version: versionMatch?.[1] ?? "last" };
-  }
-
-  const headers: Record<string, string> = {};
-  if (sessionId) {
-    headers["cookie"] = sessionSign
-      ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
-      : `sessionid=${sessionId}`;
-  }
-  const versionsUrl = `https://pine-facade.tradingview.com/pine-facade/versions/${encodeURIComponent(rawId)}/last`;
-  let version = "last";
-  try {
-    const resp = await fetch(versionsUrl, { headers });
-    if (resp.ok) {
-      const data: any = await resp.json();
-      const v = Array.isArray(data) ? data[0]?.version : data?.version;
-      if (v != null) version = String(v);
-    }
-  } catch {
-    // tolerate network blips on version lookup; "last" works as a fallback
-  }
-
-  if (rawId.startsWith("PUB;") || rawId.startsWith("USER;")) {
-    return { wireId: `Script$${rawId}@tv-scripting-101!`, version };
-  }
-  if (rawId.startsWith("STD;")) {
-    const ns = version === "last" ? "tv-basicstudies" : `tv-basicstudies-${version}`;
-    return { wireId: `${rawId}@${ns}!`, version };
-  }
-  const ns = version === "last" ? "tv-basicstudies" : `tv-basicstudies-${version}`;
-  return { wireId: `${rawId}@${ns}!`, version };
-};
-
-// === Internal: inputs dict (mirrors tradingview.ts:968) ===================
-
-const buildInputsDict = (
-  rawInputs: Record<string, any> | undefined,
-  paramsByName: Record<string, any> | undefined,
-  meta: { inputs: any[] } | null,
-  parentSeriesId: string,
-): Record<string, any> => {
-  const inputs: Record<string, any> = { ...(rawInputs ?? {}) };
-
-  if (paramsByName && meta) {
-    for (const [name, value] of Object.entries(paramsByName)) {
-      const found = (meta.inputs || []).find((mi: any) => mi.name === name || mi.id === name);
-      if (!found) continue;
-      inputs[found.id] = value;
-    }
-  }
-
-  if (meta) {
-    for (const mi of meta.inputs || []) {
-      const id = mi.id as string;
-      if (!(id in inputs)) continue;
-      const t = (mi.type as string) || "";
-      const v = inputs[id];
-      if (t === "source" && typeof v === "string") {
-        if (SOURCE_ALIASES.has(v)) {
-          inputs[id] = `${parentSeriesId}$${v}`;
-        }
-      }
-      if (t === "symbol" && typeof v === "string") {
-        inputs[id] = { type: "symbol", value: v };
-      }
-    }
-  }
-
-  return inputs;
-};
-
-// === Internal: plot extraction (mirrors tradingview.ts:1009) ==============
-
-const buildStudyPlots = (
-  meta: { plots?: any[]; metaInfo?: any } | null,
-  rowsBySlot: Record<string, Array<{ i: number; v: any[] }>>,
-  studySlot: string,
-  seriesIndexToTs: Map<number, number>,
-): StudyPlot[] => {
-  const rows = rowsBySlot[studySlot] || [];
-  if (rows.length === 0) return [];
-
-  const sortedRows = [...rows].sort((a, b) => a.i - b.i);
-  const sample = sortedRows[0]?.v ?? [];
-  const tsIsFirst = sample.length > 0 && isUnixSeconds(sample[0]);
-
-  const plotDefs = (meta?.plots || []).filter((p: any) => p?.type !== "no_series");
-  const styles: Record<string, any> = meta?.metaInfo?.styles || {};
-  const numPlotChannels = tsIsFirst ? sample.length - 1 : sample.length;
-  const plotCount = plotDefs.length || numPlotChannels;
-
-  const plots: StudyPlot[] = [];
-  for (let pi = 0; pi < plotCount; pi += 1) {
-    const def = plotDefs[pi] || {};
-    const plotId = def.id || `plot_${pi}`;
-    const title = styles[plotId]?.title || def.title || plotId;
-    const data: Array<{ ts: number; value: any }> = [];
-    for (const row of sortedRows) {
-      const ts = tsIsFirst
-        ? Number(row.v[0])
-        : (seriesIndexToTs.get(row.i) ?? row.i);
-      const value = tsIsFirst ? row.v[pi + 1] : row.v[pi];
-      if (value == null) continue;
-      data.push({ ts, value });
-    }
-    plots.push({
-      id: plotId,
-      name: title,
-      title,
-      type: def.type || "line",
-      data,
-    });
-  }
-  return plots;
-};
-
-// === Internal: payload parsing (mirrors tradingview.ts:43-95) =============
-
-const parseMessage = (message: string) => {
-  if (!message) return [];
-  const normalized = normalizeTradingViewPayload(message.toString());
-  return normalized
-    .split(/~m~\d+~m~/)
-    .slice(1)
-    .map((event) => {
-      if (event.startsWith("~h~")) {
-        return { type: "ping" as const, data: `~m~${event.length}~m~${event}` };
-      }
-      const parsed = JSON.parse(event);
-      if (parsed["session_id"]) return { type: "session" as const, data: parsed };
-      return { type: "event" as const, data: parsed };
-    });
-};
-
-// === Internal: chart-session connection (mirrors tradingview.ts:136-247) ==
-// Trimmed: only the preferred endpoint is tried. The full multi-endpoint
-// fallback is unnecessary for the chain helper since runStudy already
-// stresses the public endpoint surface; if this fails, the caller can
-// retry with a different endpoint.
-
-interface ChainConnection {
-  subscribe: (handler: (e: TVEvent) => void) => () => void;
-  send: (name: string, params: any[]) => void;
-  close: () => Promise<void>;
-}
-
-const openChainConnection = async (opts: {
-  sessionId?: string;
-  sessionSign?: string;
-  endpoint?: TradingviewEndpoint;
-  timeoutMs?: number;
-}): Promise<ChainConnection> => {
-  const ep: TradingviewEndpoint =
-    opts.endpoint && TRADINGVIEW_WS_ENDPOINTS[opts.endpoint] ? opts.endpoint : "prodata";
-  const wsUrl = TRADINGVIEW_WS_ENDPOINTS[ep];
-  const token = await getAuthToken(opts.sessionId, opts.sessionSign);
-  const socket = new RawWebSocket(wsUrl, {
-    sessionId: opts.sessionId,
-    sessionSign: opts.sessionSign,
-  });
-  const subscribers = new Set<(e: TVEvent) => void>();
-
-  const subscribe = (handler: (e: TVEvent) => void) => {
-    subscribers.add(handler);
-    return () => {
-      subscribers.delete(handler);
-    };
-  };
-
-  const send = (name: string, params: any[]) => {
-    const framed = frameTradingViewMessage(name, params);
-    socket.sendText(framed).catch(() => {});
-  };
-
-  const close = async () => {
-    subscribers.clear();
-    await socket.close();
-  };
-
-  await new Promise<void>((resolve, reject) => {
-    let ready = false;
-    const timeout = setTimeout(() => {
-      if (!ready) {
-        socket.close().catch(() => {});
-        reject(new Error("Connection timeout to TradingView"));
-      }
-    }, opts.timeoutMs ?? 10000);
-
-    socket.onError = (err) => {
-      if (!ready) {
-        clearTimeout(timeout);
-        reject(err);
-      }
-    };
-    socket.onClose = (err) => {
-      if (!ready) {
-        clearTimeout(timeout);
-        reject(err ?? new Error("Connection closed"));
-      }
-    };
-    socket.onText = (text) => {
-      if (text === "2") {
-        socket.sendText("3").catch(() => {});
-        return;
-      }
-      const payloads = parseMessage(text);
-      for (const payload of payloads) {
-            switch (payload.type) {
-              case "ping":
-                socket.sendText(payload.data).catch(() => {});
-                break;
-              case "session":
-                ready = true;
-                clearTimeout(timeout);
-                send("set_auth_token", [token]);
-                send("set_locale", ["en", "US"]);
-                resolve();
-                break;
-          case "event":
-            subscribers.forEach((handler) =>
-              handler({ name: payload.data.m, params: payload.data.p }),
-            );
-            break;
-          default:
-            break;
-        }
-      }
-    };
-
-    socket.connect(opts.timeoutMs ?? 10000).catch((err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-
-  return { subscribe, send, close };
-};
-
 // === Public: runStudyChain ================================================
 
 export const runStudyChain = async (req: StudyChainRequest): Promise<StudyChainResult> => {
@@ -473,6 +191,23 @@ export const runStudyChain = async (req: StudyChainRequest): Promise<StudyChainR
       const meta: IndicatorMeta | null =
         metaRes.status === "fulfilled" ? (metaRes.value as IndicatorMeta | null) : null;
       const inputsDict = buildInputsDict(spec.inputs, spec.params, meta, parentSlot);
+
+      // Pine flow (Script@ / StrategyScript@ wireIds) requires the script
+      // identity envelope inside the inputs dict: text=ilTemplate, pineId,
+      // pineVersion. Without this the upstream returns "study_error: check
+      // study unexpected error". Mirrors runStudy in tradingview.ts.
+      if (isPineFlowWireId(wire.wireId)) {
+        const scriptId = wire.pineId ?? spec.studyId.split("@")[0];
+        if (!meta?.script) {
+          throw new Error(
+            `pine script ${scriptId} missing IL: pine-facade/translate did not return ilTemplate`,
+          );
+        }
+        inputsDict.text = meta.script;
+        inputsDict.pineId = scriptId;
+        inputsDict.pineVersion = meta.version || wire.version || "1.0";
+      }
+
       return {
         spec,
         slotName,
@@ -486,7 +221,7 @@ export const runStudyChain = async (req: StudyChainRequest): Promise<StudyChainR
   );
 
   const chartSession = generateSessionId("cs");
-  const connection = await openChainConnection({
+  const connection: TradingviewConnection = await connect({
     sessionId: req.sessionId,
     sessionSign: req.sessionSign,
     endpoint: req.endpoint,
@@ -524,7 +259,7 @@ export const runStudyChain = async (req: StudyChainRequest): Promise<StudyChainR
         wireId: p.wireId,
         studyVersion: p.version,
         parentSlot: p.parentSlot,
-        plots: buildStudyPlots(p.meta, rowsBySlot, p.slotName, seriesIndexToTs),
+        plots: buildStudyPlots(p.meta, rowsBySlot[p.slotName] || [], seriesIndexToTs),
         nonseries: nonseriesBySlot[p.slotName],
       })),
     });

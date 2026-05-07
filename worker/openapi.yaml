@@ -472,10 +472,6 @@ paths:
     post:
       summary: Modify a study slot's inputs in place (debounced 500ms).
       responses: { "200": { description: Study modify result. } }
-  /v1/chart-session/replay/step:
-    post:
-      summary: Step a chart session's replay (forward/backward by N bars).
-      responses: { "200": { description: Replay step result. } }
   /v1/chart-session/close:
     post:
       summary: Tear down a chart session and release the upstream WebSocket.

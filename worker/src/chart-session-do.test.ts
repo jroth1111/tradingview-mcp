@@ -107,14 +107,6 @@ describe("ChartSession DO request routing", () => {
     expect(body.error).toMatch(/no active chart session/i);
   });
 
-  it("/replay/step rejects when no session is active", async () => {
-    const cs = makeDo();
-    const resp = await cs.fetch(post("/replay/step", { direction: "forward" }));
-    expect(resp.status).toBe(400);
-    const body = (await resp.json()) as { error: string };
-    expect(body.error).toMatch(/no active chart session/i);
-  });
-
   it("/close is idempotent (safe with no active session)", async () => {
     const cs = makeDo();
     const r1 = await cs.fetch(post("/close"));
@@ -211,24 +203,6 @@ describe("ChartSession lifecycle (with mocked WS)", () => {
     expect(fake.closed).toBe(true);
   });
 
-  it("/replay/step throws known-gap error when invoked on an active session", async () => {
-    const fake = makeFakeConnection();
-    _setConnectFactoryForTests(async () => fake);
-    const cs = makeDo();
-
-    const observer = setInterval(() => {
-      if (fake.sent.some((s) => s.name === "create_series")) {
-        fake.emit({ name: "series_completed", params: ["cs_123", "sds_1"] });
-      }
-    }, 0);
-    await cs.fetch(post("/create", { symbol: "NASDAQ:AAPL" }));
-    clearInterval(observer);
-
-    const resp = await cs.fetch(post("/replay/step", { direction: "forward", bars: 1 }));
-    expect(resp.status).toBe(500);
-    const body = (await resp.json()) as { error: string };
-    expect(body.error).toMatch(/replay step not implemented/i);
-  });
 });
 
 describe("Slot allocation", () => {
