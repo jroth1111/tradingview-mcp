@@ -383,6 +383,40 @@ describe("New surfaces (P3-P6, P10)", () => {
     spy.mockRestore();
   });
 
+  it("/v1/indicators/categories aggregates kinds and filters from the catalog", async () => {
+    const env = makeEnv();
+    const spy = vi
+      .spyOn(pubscripts, "getBuiltinCategories")
+      .mockResolvedValueOnce({
+        filters: [
+          { name: "candlestick", count: 1 },
+          { name: "fundamental", count: 1 },
+          { name: "standard", count: 2 },
+        ],
+        kinds: [
+          { name: "library", count: 1 },
+          { name: "study", count: 3 },
+        ],
+        fundamentalCategories: [{ name: "valuation", count: 1 }],
+        total: 4,
+        cached: false,
+      });
+    const body = JSON.stringify({});
+    const headers = await signRequest("POST", "/v1/indicators/categories", body);
+    const res = await app.request("/v1/indicators/categories", { method: "POST", body, headers }, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as any;
+    expect(json.result.kinds).toEqual([
+      { name: "library", count: 1 },
+      { name: "study", count: 3 },
+    ]);
+    expect(json.result.total).toBe(4);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ cache: env.CACHE_META }),
+    );
+    spy.mockRestore();
+  });
+
   it("/v1/pubscripts/library passes through query params", async () => {
     const env = makeEnv();
     const spy = vi

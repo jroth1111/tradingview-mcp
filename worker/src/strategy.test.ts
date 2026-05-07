@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import * as tv from "./tradingview";
+import * as pineCrud from "./pine-crud";
 import type { StudyResult } from "./tradingview";
 import {
   buildStrategyInputs,
@@ -335,6 +336,92 @@ describe("runStrategy", () => {
     expect(result.trades).toEqual([]);
     expect(result.equity).toEqual([]);
     spy.mockRestore();
+  });
+
+  it("pre-flights closed-source PUB; studyId via is_auth_to_get when a sessionId is provided", async () => {
+    const authSpy = vi
+      .spyOn(pineCrud, "isAuthToGet")
+      .mockResolvedValueOnce({ authorized: true, raw: "true" });
+    const studySpy = vi
+      .spyOn(tv, "runStudy")
+      .mockResolvedValueOnce(makeStudyResult({}));
+
+    await runStrategy({
+      symbol: "NASDAQ:AAPL",
+      studyId: "PUB;closed@2.0",
+      sessionId: "sid-abc",
+      sessionSign: "sign-abc",
+    });
+
+    expect(authSpy).toHaveBeenCalledTimes(1);
+    expect(authSpy.mock.calls[0][1]).toBe("PUB;closed");
+    expect(authSpy.mock.calls[0][2]).toBe("2.0");
+    expect(studySpy).toHaveBeenCalledTimes(1);
+
+    authSpy.mockRestore();
+    studySpy.mockRestore();
+  });
+
+  it("throws plan_required when is_auth_to_get returns authorized:false", async () => {
+    const authSpy = vi
+      .spyOn(pineCrud, "isAuthToGet")
+      .mockResolvedValueOnce({ authorized: false, raw: "false" });
+    const studySpy = vi.spyOn(tv, "runStudy");
+
+    await expect(
+      runStrategy({
+        symbol: "NASDAQ:AAPL",
+        studyId: "PUB;invite-only@1.0",
+        sessionId: "sid-abc",
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("not accessible"),
+      category: "plan_required",
+      code: "is_auth_to_get_false",
+      status: 403,
+    });
+
+    expect(studySpy).not.toHaveBeenCalled();
+
+    authSpy.mockRestore();
+    studySpy.mockRestore();
+  });
+
+  it("skips is_auth_to_get when no sessionId is provided", async () => {
+    const authSpy = vi.spyOn(pineCrud, "isAuthToGet");
+    const studySpy = vi
+      .spyOn(tv, "runStudy")
+      .mockResolvedValueOnce(makeStudyResult({}));
+
+    await runStrategy({
+      symbol: "NASDAQ:AAPL",
+      studyId: "PUB;closed@1.0",
+    });
+
+    expect(authSpy).not.toHaveBeenCalled();
+    expect(studySpy).toHaveBeenCalledTimes(1);
+
+    authSpy.mockRestore();
+    studySpy.mockRestore();
+  });
+
+  it("skips is_auth_to_get for built-in STD; studyIds", async () => {
+    const authSpy = vi.spyOn(pineCrud, "isAuthToGet");
+    const studySpy = vi
+      .spyOn(tv, "runStudy")
+      .mockResolvedValueOnce(makeStudyResult({}));
+
+    await runStrategy({
+      symbol: "NASDAQ:AAPL",
+      studyId: "STD;BB",
+      sessionId: "sid-abc",
+    });
+
+    expect(authSpy).not.toHaveBeenCalled();
+    expect(studySpy).toHaveBeenCalledTimes(1);
+
+    authSpy.mockRestore();
+    studySpy.mockRestore();
   });
 });
 

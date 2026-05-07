@@ -60,43 +60,45 @@ Status legend:
 
 | Method | Path | Auth | Status | Body |
 | --- | --- | --- | --- | --- |
-| GET | `/v1/indicators/builtin` | HMAC | pending (bead `tradingview-ux7`) | `?filter, kind, q, fundamentalCategory` |
+| POST | `/v1/indicators/builtin` | HMAC | live | `{filter?, kind?, q?, fundamentalCategory?, cacheTtlSeconds?, sessionId?, sessionSign?}` |
+| POST | `/v1/indicators/categories` | HMAC | live | `{cacheTtlSeconds?, sessionId?, sessionSign?}` → `{filters[], kinds[], fundamentalCategories[], total, cached}`. |
 | POST | `/v1/indicators/search` | HMAC | live | `{q}` (built-ins + public merged) |
 | POST | `/v1/indicators/meta` | HMAC | live | `{id, version?}` |
-| GET | `/v1/indicators/inputs/{id}` | HMAC | pending (bead `tradingview-1n8`) | Typed inputs from metaInfo. |
+| POST | `/v1/indicators/inputs` | HMAC | live | `{id, version?}` → typed inputs (numeric/source/bool/text/symbol). |
 | POST | `/v1/indicators/private` | HMAC + admin | live | List user-saved Pine. |
-| POST | `/v1/study` | HMAC + admin | **bug (bead `tradingview-hd6`)** | `{symbol, studyId, inputs?, params?, timeframe?, bars?, parentSeriesId?}` — current code uses 3-arg `create_study` and never decodes `du`; produces empty data. |
+| POST | `/v1/study` | HMAC + admin | live | `{symbol, studyId, inputs?, params?, timeframe?, bars?, parentSeriesId?}` — 6-arg `create_study` + `du` accumulator; non-series outputs surface in `nonseries`. |
 
 ## Pubscripts
 
 | Method | Path | Auth | Status | Notes |
 | --- | --- | --- | --- | --- |
-| GET | `/v1/pubscripts/library` | HMAC | pending (bead `tradingview-2xa`) | `?offset, count, sort, type, is_paid` |
-| GET | `/v1/pubscripts/editors-picks` | HMAC | pending | `?type` |
-| POST | `/v1/pubscripts/batch` | HMAC | pending | `{ids[]}` → fans into `/pubscripts-get/`. |
-| GET | `/v1/pubscripts/suggest` | HMAC | pending | `?q` |
-| GET | `/v1/pubscripts/personal-access` | HMAC + admin | pending | Paid scripts the user has. |
-| GET | `/v1/pubscripts/packages/store` | HMAC + admin | pending | |
+| POST | `/v1/pubscripts/library` | HMAC | live | `{offset?, count?, sort?, type?, isPaid?}` |
+| POST | `/v1/pubscripts/editors-picks` | HMAC | live | `{type?}` |
+| POST | `/v1/pubscripts/batch` | HMAC | live | `{scriptIdPart, showHidden?}` |
+| GET  | `/v1/pubscripts/suggest` | HMAC | live | `?q` |
+| GET  | `/v1/pubscripts/personal-access` | HMAC + admin | live | Paid scripts the session has access to. |
+| GET  | `/v1/pubscripts/packages-store` | HMAC + admin | live | Script packages catalogue. |
 
 ## Pine
 
 | Method | Path | Auth | Status | Notes |
 | --- | --- | --- | --- | --- |
-| POST | `/v1/pine/compile` | HMAC + admin | pending (bead `tradingview-la1`) | `{source, mode:"eval"|"full"|"light", inputs?, version?}`. |
-| POST | `/v1/pine/run` | HMAC + admin | pending | Composes compile + study. |
-| POST | `/v1/pine/save` | HMAC + admin | pending | `{mode:"new"|"new_draft"|"next"|"next_draft", id?, name?, source, allow_overwrite?, allow_create_new?}` |
-| POST | `/v1/pine/publish` | HMAC + admin | pending | `{mode:"new"|"next", id?, source, extra, access}` |
-| POST | `/v1/pine/delete` | HMAC + admin | pending | `{id}` |
-| POST | `/v1/pine/rename` | HMAC + admin | pending | `{id, name, force?}` |
-| POST | `/v1/pine/parse-title` | HMAC | pending | `{source}` |
+| POST | `/v1/pine/compile` | HMAC + admin | live | `{source?, pineId?, mode?:"eval"|"full"|"light", inputs?, version?}`. |
+| POST | `/v1/pine/run` | HMAC + admin | live | Composes compile + study; accepts source or pineId. |
+| POST | `/v1/pine/translate-source` | HMAC + admin | live | One-purpose alias for `/v1/pine/compile` mode=full (raw source → metaInfo + ilTemplate). |
+| POST | `/v1/pine/save` | HMAC + admin | live | `{mode:"new"|"new_draft"|"next"|"next_draft", id?, name?, source, allow_overwrite?, allow_create_new?}` |
+| POST | `/v1/pine/publish` | HMAC + admin | live | `{mode:"new"|"next", id?, source, extra, access}` |
+| POST | `/v1/pine/delete` | HMAC + admin | live | `{id}` |
+| POST | `/v1/pine/rename` | HMAC + admin | live | `{id, name, force?}` |
+| POST | `/v1/pine/parse-title` | HMAC | live | `{source}` |
 
 ## Strategy / backtest
 
 | Method | Path | Auth | Status | Notes |
 | --- | --- | --- | --- | --- |
-| POST | `/v1/strategy/run` | HMAC + admin | pending (bead `tradingview-g6v`) | Properties + inputs + bars → `{report, trades, equity}`. |
-| POST | `/v1/strategy/replay` | HMAC + admin | pending | SSE per-bar. |
-| POST | `/v1/strategy/optimize` | HMAC + admin | pending | Parameter sweep wrapping `/v1/strategy/run`. |
+| POST | `/v1/strategy/run` | HMAC + admin | live | `{symbol, studyId|source, properties?, inputs?, params?, timeframe?, bars?}` → `{studyResult, report, trades, equity}`. Closed-source `PUB;<id>` and `USER;PUB;<id>` study refs are pre-flighted with `is_auth_to_get`; failure surfaces as `category:"plan_required"`, `code:"is_auth_to_get_false"`, status 403. |
+| POST | `/v1/strategy/replay` | HMAC + admin | live | SSE: `id`/`event`/`data` frames; emits `status`, `trade`, `equity`, `report`, `done`/`error`. Wraps `runStrategy`; consumers get incremental visibility into the parsed `nonseries` outputs without buffering the full report. |
+| POST | `/v1/strategy/optimize` | HMAC + admin | live | Parameter sweep wrapping `/v1/strategy/run`; respects same closed-source gating per combo. |
 
 ## Alerts
 
@@ -310,12 +312,7 @@ Inbound S→C events `study_loading`, `tickmark_update`, `index_update`, `clear_
 
 ## Deferred
 
-| Capability | Bead | Reason |
-| --- | --- | --- |
-| `modify_study` + study-on-study | `tradingview-xu3` | Requires DO-owned chart session (bead `tradingview-2v6`). |
-| Stateful chart-session DO | `tradingview-2v6` | Multi-step iterate, replay-driven streaming. |
-| Pine compile + run loop | `tradingview-la1` | Decomposes into P1 (`/v1/pine/compile`) + P2 (`/v1/pine/run`) above. |
-| Strategy backtest | `tradingview-g6v` | Depends on P0 (`/v1/study` fix). |
+No surfaces are currently deferred — every TradingView capability the recon documents is wired and reachable. Closed surface absences (`like`/`rate`/`comment` on pubscripts, `apply_template` envelope, per-topic pushstream subscribe, outbound `web_hook.url` proxy, dedicated strategy `report_data` frame, by-author/by-tag pubscripts filters) are documented in `capabilities.md` under "Known absences".
 
 ## Error mapping
 

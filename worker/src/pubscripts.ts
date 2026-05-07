@@ -128,6 +128,49 @@ export const getBuiltinCatalog = async (
   return { count: filtered.length, results: filtered, cached: fromCache };
 };
 
+// Aggregates the built-in catalog into category enumerations for UI surfaces
+// that need to populate dropdowns / filter chips without re-fetching the full
+// list and counting client-side. Re-uses `getBuiltinCatalog`'s cache so the
+// upstream cost is amortized.
+export interface BuiltinCategoriesResponse {
+  filters: Array<{ name: string; count: number }>;
+  kinds: Array<{ name: string; count: number }>;
+  fundamentalCategories: Array<{ name: string; count: number }>;
+  total: number;
+  cached: boolean;
+}
+
+export const getBuiltinCategories = async (
+  req: Pick<BuiltinCatalogRequest, "cache" | "cacheTtlSeconds" | "sessionId" | "sessionSign">,
+): Promise<BuiltinCategoriesResponse> => {
+  const catalog = await getBuiltinCatalog({
+    filter: "all",
+    cache: req.cache,
+    cacheTtlSeconds: req.cacheTtlSeconds,
+    sessionId: req.sessionId,
+    sessionSign: req.sessionSign,
+  });
+
+  const tally = (entries: Array<string | undefined>): Array<{ name: string; count: number }> => {
+    const counts = new Map<string, number>();
+    for (const e of entries) {
+      if (!e) continue;
+      counts.set(e, (counts.get(e) ?? 0) + 1);
+    }
+    return Array.from(counts, ([name, count]) => ({ name, count })).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  };
+
+  return {
+    filters: tally(catalog.results.map((r) => r.filter)),
+    kinds: tally(catalog.results.map((r) => r.kind)),
+    fundamentalCategories: tally(catalog.results.map((r) => r.fundamentalCategory)),
+    total: catalog.count,
+    cached: catalog.cached,
+  };
+};
+
 // ---------- P5: pubscripts library ----------
 
 export interface PubLibraryRequest {

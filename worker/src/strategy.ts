@@ -22,6 +22,7 @@ import {
   type StudyRequest,
   type StudyResult,
 } from "./tradingview";
+import { isAuthToGet } from "./pine-crud";
 import type { TradingviewEndpoint } from "../../packages/tradingview-core/src";
 
 // ---------- types ----------
@@ -379,6 +380,23 @@ export const parseStrategyOutputs = (
   return { report, trades, equity };
 };
 
+// Closed-source strategies (`PUB;<id>`) require `is_auth_to_get` to be true on
+// the calling session before TradingView's WebSocket will return du frames for
+// the run. Calling `runStudy` without the precheck surfaces a generic upstream
+// failure — pre-flighting via pine-facade/is_auth_to_get gives a precise
+// `plan_required` signal before opening the WS.
+const looksLikeClosedSourcePineId = (studyId: string): boolean =>
+  /^PUB;/i.test(studyId) || /USER;PUB;/i.test(studyId);
+
+const splitVersionFromStudyId = (studyId: string): { id: string; version: string } => {
+  // PUB;<id>@<version> or PUB;<id>;<version> — TradingView accepts both.
+  const atIdx = studyId.lastIndexOf("@");
+  if (atIdx > 0) {
+    return { id: studyId.slice(0, atIdx), version: studyId.slice(atIdx + 1) };
+  }
+  return { id: studyId, version: "1.0" };
+};
+
 // ---------- runStrategy ----------
 
 export const runStrategy = async (
@@ -397,6 +415,28 @@ export const runStrategy = async (
   }
   if (!req.symbol) {
     throw new Error("symbol required");
+  }
+
+  if (
+    req.studyId &&
+    req.sessionId &&
+    looksLikeClosedSourcePineId(req.studyId)
+  ) {
+    const { id, version } = splitVersionFromStudyId(req.studyId);
+    const auth = await isAuthToGet(
+      { sessionId: req.sessionId, sessionSign: req.sessionSign },
+      id,
+      version,
+    );
+    if (!auth.authorized) {
+      const err: any = new Error(
+        `closed-source script ${id} not accessible to this session (is_auth_to_get=${auth.raw})`,
+      );
+      err.status = 403;
+      err.category = "plan_required";
+      err.code = "is_auth_to_get_false";
+      throw err;
+    }
   }
 
   const inputs = buildStrategyInputs(req.inputs, req.properties);

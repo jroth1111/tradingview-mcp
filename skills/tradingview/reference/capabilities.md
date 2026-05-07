@@ -12,7 +12,8 @@ Two tiers gate every TradingView surface the Worker exposes. HMAC is universal; 
 | Multi-symbol scan | `POST /v1/scan` | Backed by `scanner.tradingview.com`. |
 | TA snapshot | `POST /v1/ta` | Synthesised summary. |
 | TA scoring summary | `POST /v1/ta/summary` | Buy/sell/neutral counts. |
-| Built-in indicator catalog | `GET /v1/indicators/builtin` | `STD;`/candlestick/fundamental aggregate. |
+| Built-in indicator catalog | `POST /v1/indicators/builtin` | `STD;`/candlestick/fundamental aggregate. |
+| Built-in indicator categories | `POST /v1/indicators/categories` | Aggregates kinds, filters, and fundamentalCategory enums with counts. |
 | Pubscripts library | `GET /v1/pubscripts/library` | Public scripts browse with `sort`, `type`, `is_paid`. |
 | Pubscripts editors picks | `GET /v1/pubscripts/editors-picks` | |
 | Pubscripts batch hydrate | `POST /v1/pubscripts/batch` | Resolve `scriptIdPart[]` to full metainfo. |
@@ -49,13 +50,14 @@ Two tiers gate every TradingView surface the Worker exposes. HMAC is universal; 
 | --- | --- | --- |
 | Run indicator (built-in / public / private) | `POST /v1/study` | Returns plot output keyed by series timestamp. |
 | Pine compile | `POST /v1/pine/compile` | Modes `eval` / `full` / `light`. |
+| Pine translate-source | `POST /v1/pine/translate-source` | Direct alias for `pine-facade/translate_source`; raw source → metaInfo + ilTemplate. |
 | Pine run | `POST /v1/pine/run` | Compose compile + study. Accepts source or pineId. |
 | Pine save (draft / saved / next) | `POST /v1/pine/save` | Mode = `new`, `new_draft`, `next`, `next_draft`. |
 | Pine publish | `POST /v1/pine/publish` | Mode = `new`, `next`, with access scope. |
 | Pine delete / rename | `POST /v1/pine/delete`, `POST /v1/pine/rename` | |
 | Strategy backtest | `POST /v1/strategy/run` | Properties + inputs + bars; returns report + trades + equity. |
-| Strategy replay (per-bar) | `POST /v1/strategy/replay` | SSE stream reusing `du` frames. |
-| Closed-source backtest | `POST /v1/strategy/run` with `pineId` reference | Requires `is_auth_to_get` truthy. |
+| Strategy replay (per-bar) | `POST /v1/strategy/replay` | SSE: emits `status`/`trade`/`equity`/`report`/`done` events from the parsed `nonseries` outputs. |
+| Closed-source backtest | `POST /v1/strategy/run` with `pineId` reference | `PUB;<id>` and `USER;PUB;<id>` study refs are pre-flighted with `is_auth_to_get`; failure → `category:"plan_required"`, `code:"is_auth_to_get_false"`, 403. |
 | Private indicator list | `POST /v1/indicators/private` | |
 | Indicator favorites / recents | `POST /v1/settings/save`, `GET /v1/settings/load` | TVSettings keyed; not a dedicated endpoint upstream. |
 | Deep history | `POST /v1/backfill` | Multi-window pagination. |

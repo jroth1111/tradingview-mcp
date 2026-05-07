@@ -43,6 +43,7 @@ import {
 } from "./tradingview";
 import {
   getBuiltinCatalog,
+  getBuiltinCategories,
   getPubLibrary,
   getPubEditorsPicks,
   getPubBatch,
@@ -704,6 +705,7 @@ app.get("/", (c) =>
       "/v1/me",
       "/v1/indicators/inputs",
       "/v1/indicators/builtin",
+      "/v1/indicators/categories",
       "/v1/pubscripts/library",
       "/v1/pubscripts/editors-picks",
       "/v1/pubscripts/batch",
@@ -744,6 +746,7 @@ app.get("/", (c) =>
       "/v1/pine/compile",
       "/v1/pine/run",
       "/v1/strategy/run",
+      "/v1/strategy/replay",
       "/v1/strategy/optimize",
       "/v1/study/chain",
       "/v1/study/modify",
@@ -800,6 +803,7 @@ app.get("/", (c) =>
       "/v1/pine/convert",
       "/v1/pine/parse-title",
       "/v1/pine/translate-light",
+      "/v1/pine/translate-source",
       "/v1/pine/gen-alert",
       "/v1/options/iv/:symbol",
       "/v1/options/volatility-chart/:symbol",
@@ -1466,6 +1470,33 @@ app.post("/v1/indicators/builtin", async (c) => {
   } catch (err: any) {
     if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
     return routeError(c, err, "bad request");
+  }
+});
+
+app.post("/v1/indicators/categories", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      cacheTtlSeconds?: number;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await getBuiltinCategories({
+      cache: c.env.CACHE_META,
+      cacheTtlSeconds: body.cacheTtlSeconds,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    if (session.sessionId) await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "indicators categories failed");
   }
 });
 
@@ -2390,6 +2421,97 @@ app.post("/v1/strategy/run", async (c) => {
     if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
     return routeError(c, err, "strategy run failed");
   }
+});
+
+// Strategy replay streams a finished run's trades and equity points as
+// Server-Sent Events. The actual du-frame interception happens inside
+// runStrategy via runStudy; this route emits the parsed nonseries outputs in
+// per-bar order so consumers can render an equity/drawdown curve incrementally
+// without buffering the full report.
+app.post("/v1/strategy/replay", async (c) => {
+  const authResp = await verifyHmacAuth(c);
+  if (authResp) return authResp;
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid json" }, 400);
+  }
+  if (!body?.symbol) return c.json({ error: "symbol required" }, 400);
+  if (!body?.studyId && !body?.source) {
+    return c.json({ error: "studyId or source required" }, 400);
+  }
+
+  const session = await resolveSession(c.env.CACHE_META, {
+    sessionId: body.sessionId,
+    sessionSign: body.sessionSign,
+  });
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let eventId = 0;
+      const emit = (event: string, data: any) => {
+        eventId += 1;
+        controller.enqueue(
+          encoder.encode(
+            `id: ${eventId}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+          ),
+        );
+      };
+      try {
+        emit("status", { phase: "starting", studyId: body.studyId });
+        const result = await runStrategy({
+          symbol: body.symbol,
+          studyId: body.studyId,
+          source: body.source,
+          properties: body.properties,
+          inputs: body.inputs,
+          params: body.params,
+          timeframe: body.timeframe,
+          bars: body.bars,
+          endpoint: body.endpoint as any,
+          sessionId: session.sessionId,
+          sessionSign: session.sessionSign,
+        });
+        emit("status", { phase: "running" });
+
+        for (const trade of result.trades) {
+          emit("trade", trade);
+        }
+        for (const point of result.equity) {
+          emit("equity", point);
+        }
+        emit("report", result.report);
+        emit("done", {
+          phase: "complete",
+          totalTrades: result.report.totalTrades ?? result.trades.length,
+          equityPoints: result.equity.length,
+          authSource: session.source,
+        });
+        if (session.sessionId) await markStoredSessionSuccess(c.env.CACHE_META, session);
+      } catch (err: any) {
+        if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+        emit("error", {
+          message: err?.message ?? String(err),
+          category: err?.category ?? "upstream",
+          code: err?.code,
+          status: err?.status,
+        });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    },
+  });
 });
 
 app.post("/v1/strategy/optimize", async (c) => {
@@ -3632,6 +3754,41 @@ app.get("/v1/pine/translate-light", async (c) => {
   } catch (err: any) {
     if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
     return routeError(c, err, "pine translate-light failed");
+  }
+});
+
+// Direct pine-facade/translate_source surface — full-source compile that
+// returns metaInfo + ilTemplate. /v1/pine/compile dispatches to the same
+// helper via mode="full"; this route exists as a documented one-purpose
+// alias for callers who only need the raw-source compile leg without the
+// mode parameter.
+app.post("/v1/pine/translate-source", async (c) => {
+  try {
+    const authResp = await verifyHmacAuth(c);
+    if (authResp) return authResp;
+    const body = (await c.req.json()) as {
+      source?: string;
+      version?: string;
+      sessionId?: string;
+      sessionSign?: string;
+    };
+    if (!body?.source) return c.json({ error: "source required" }, 400);
+    const session = await resolveSession(c.env.CACHE_META, {
+      sessionId: body.sessionId,
+      sessionSign: body.sessionSign,
+    });
+    const result = await compilePine({
+      mode: "full",
+      source: body.source,
+      version: body.version,
+      sessionId: session.sessionId,
+      sessionSign: session.sessionSign,
+    });
+    await markStoredSessionSuccess(c.env.CACHE_META, session);
+    return c.json({ result, authSource: session.source });
+  } catch (err: any) {
+    if (isAuthError(err)) await markAuthFailure(c.env.CACHE_META);
+    return routeError(c, err, "pine translate-source failed");
   }
 });
 
