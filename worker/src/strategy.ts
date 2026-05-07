@@ -790,8 +790,13 @@ export const runStrategy = async (
     throw new Error("studyId or source required");
   }
 
-  // ---- compile path: source -> studyId via pine-facade ----
+  // ---- compile path: source -> studyId or inline IL via pine-facade ----
+  // pine-facade/translate_source returns no pineId for unsaved drafts; capture
+  // the ilTemplate + metaInfo so runStudy can take the source-only create_study
+  // path that injects inputs.text directly.
   let resolvedStudyId = req.studyId;
+  let pineSource: { ilTemplate: string; metaInfo?: any } | undefined;
+  let compileMeta: any = null;
   if (!resolvedStudyId && req.source) {
     const compile = await compilePine({
       source: req.source,
@@ -806,12 +811,22 @@ export const runStrategy = async (
       err.category = "validation";
       throw err;
     }
-    if (!compile.pineId) {
-      const err: any = new Error("pine compile did not return a pineId");
+    if (compile.pineId) {
+      resolvedStudyId = compile.pineId;
+    } else if (compile.ilTemplate) {
+      resolvedStudyId = "PINE_SOURCE";
+      pineSource = {
+        ilTemplate: compile.ilTemplate,
+        metaInfo: compile.metaInfo,
+      };
+      compileMeta = compile.metaInfo ?? null;
+    } else {
+      const err: any = new Error(
+        "pine compile returned neither pineId nor ilTemplate",
+      );
       err.compile = compile;
       throw err;
     }
-    resolvedStudyId = compile.pineId;
   }
   if (!resolvedStudyId) {
     throw new Error("studyId required");
@@ -841,18 +856,34 @@ export const runStrategy = async (
   }
 
   // ---- fetch metaInfo so the wire normaliser can apply source/symbol rewrites ----
+  // Source-only path already has metaInfo from translate_source; reshape it
+  // into the IndicatorMeta surface the wire builder expects rather than calling
+  // pine-facade/translate (which would 404 without a real pineId).
   let meta: IndicatorMeta | null = null;
-  try {
-    meta = await getIndicatorMeta({
-      id: resolvedStudyId.split("@")[0],
-      sessionId: req.sessionId,
-      sessionSign: req.sessionSign,
-    });
-  } catch {
-    // Tolerate metaInfo lookup failures: paramsByName resolution and meta-driven
-    // source/symbol rewrites are skipped, but the run can still proceed when
-    // callers pass slot-keyed rawInputs directly.
-    meta = null;
+  if (pineSource && compileMeta) {
+    meta = {
+      id: compileMeta.scriptIdPart || resolvedStudyId,
+      version: String(compileMeta.pine?.version ?? "1.0"),
+      description: compileMeta.description,
+      shortDescription: compileMeta.shortDescription,
+      inputs: compileMeta.inputs || [],
+      plots: compileMeta.plots || [],
+      script: pineSource.ilTemplate,
+      metaInfo: compileMeta,
+    };
+  } else {
+    try {
+      meta = await getIndicatorMeta({
+        id: resolvedStudyId.split("@")[0],
+        sessionId: req.sessionId,
+        sessionSign: req.sessionSign,
+      });
+    } catch {
+      // Tolerate metaInfo lookup failures: paramsByName resolution and meta-driven
+      // source/symbol rewrites are skipped, but the run can still proceed when
+      // callers pass slot-keyed rawInputs directly.
+      meta = null;
+    }
   }
 
   const { inputs, diagnostics } = buildStrategyWireInputs({
@@ -866,6 +897,7 @@ export const runStrategy = async (
   const studyReq: StudyRequest = {
     symbol: req.symbol,
     studyId: resolvedStudyId,
+    pineSource,
     inputs,
     inputsPreShaped: true,
     timeframe: req.timeframe,

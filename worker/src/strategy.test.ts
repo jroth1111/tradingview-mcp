@@ -577,6 +577,42 @@ describe("runStrategy", () => {
     metaSpy.mockRestore();
   });
 
+  it("source-only path: compile returns ilTemplate without pineId, runStudy receives pineSource and synthetic studyId", async () => {
+    const metaSpy = mockNoMeta();
+    const ilTemplate = "ENC_IL_PAYLOAD";
+    const metaInfo = {
+      scriptIdPart: "v5",
+      pine: { version: "1.0" },
+      inputs: [],
+      plots: [],
+    };
+    const compileSpy = vi.spyOn(pine, "compilePine").mockResolvedValueOnce({
+      success: true,
+      mode: "full",
+      ilTemplate,
+      metaInfo,
+      errors: [],
+      warnings: [],
+    });
+    const runSpy = vi
+      .spyOn(tv, "runStudy")
+      .mockResolvedValueOnce(makeStudyResult({}));
+
+    await runStrategy({
+      symbol: "NASDAQ:AAPL",
+      source: '//@version=5\nstrategy("x")\nplot(close)',
+    });
+
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    const call = runSpy.mock.calls[0][0];
+    expect(call.studyId).toBe("PINE_SOURCE");
+    expect(call.pineSource).toEqual({ ilTemplate, metaInfo });
+
+    compileSpy.mockRestore();
+    runSpy.mockRestore();
+    metaSpy.mockRestore();
+  });
+
   it("surfaces compile errors with category:'validation'", async () => {
     const compileSpy = vi.spyOn(pine, "compilePine").mockResolvedValueOnce({
       success: false,

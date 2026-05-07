@@ -22,11 +22,13 @@ import {
   TIMEFRAME_MAP,
   TRADINGVIEW_BASICSTUDIES_VERSION,
   TRADINGVIEW_PINE_SCRIPT_WIRE_ID,
+  TRADINGVIEW_PINE_STRATEGY_WIRE_ID,
   TRADINGVIEW_WS_ENDPOINTS,
   VALID_TIMEFRAMES,
   buildChartSessionWsUrl,
   clampBarCount,
   frameTradingViewMessage,
+  isPineFlowWireId,
   normalizeTradingViewPayload,
   type BarLimitMode,
   type BarLimitPlan,
@@ -302,6 +304,7 @@ const defaultConnect: ConnectFactory = async (opts) => {
                 ready = true;
                 clearTimeout(timeout);
                 send("set_auth_token", [token]);
+                send("set_locale", ["en", "US"]);
                 resolve({ subscribe, send, close });
                 break;
               case "event":
@@ -372,8 +375,50 @@ const resolveStudyWireId = async (
     return { wireId: TRADINGVIEW_PINE_SCRIPT_WIRE_ID, version, pineId: rawId };
   }
 
-  // Built-in studies: drop the legacy STD; prefix and pin to the current basicstudies pack.
+  // Built-in studies bifurcate into two families on the modern TV gateway
+  // (verified 2026-05-07 via Camoufox web-client trace + std-pine-flow-probe.mjs):
+  //   • Pine-backed: EMA/SMA/WMA/VWMA/RSI/MACD/ATR/ADX/Stochastic/CCI/ROC/PSAR/
+  //     Volume/VWAP/Ichimoku and many more. The web client dispatches these via
+  //     Script@tv-scripting-101! with inputs.pineId="STD;<canonical_name>" and
+  //     inputs.text=<ilTemplate from pine-facade/translate>.
+  //   • Definition-bundle-only: BB/StochasticRSI/MOM/OBV/PivotPointsHighLow/
+  //     PivotPointsStandard/Dividends/Splits/Earnings. These return 404 from
+  //     pine-facade/translate and only work via <bareId>@tv-basicstudies-265.
+  // Strategy: probe pine-facade/translate first; if it returns ilTemplate, use
+  // the Pine flow (and pick StrategyScript wire when metaInfo.is_strategy);
+  // otherwise fall back to the basicstudies-265 form.
+  const pineIdForm = rawId.startsWith("STD;") ? rawId : `STD;${rawId}`;
   const bareId = rawId.startsWith("STD;") ? rawId.slice(4) : rawId;
+  try {
+    const headers: Record<string, string> = {};
+    if (sessionId) {
+      headers["cookie"] = sessionSign
+        ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
+        : `sessionid=${sessionId}`;
+    }
+    const resp = await fetch(
+      `https://pine-facade.tradingview.com/pine-facade/translate/${encodeURIComponent(pineIdForm)}/last`,
+      { headers },
+    );
+    if (resp.ok) {
+      const data: any = await resp.json();
+      const ilTemplate = data?.result?.ilTemplate ?? data?.result?.IL;
+      if (data?.success && ilTemplate) {
+        const isStrategy = data?.result?.metaInfo?.is_strategy === true;
+        const wireId = isStrategy
+          ? TRADINGVIEW_PINE_STRATEGY_WIRE_ID
+          : TRADINGVIEW_PINE_SCRIPT_WIRE_ID;
+        const version = String(
+          data?.result?.metaInfo?.pine?.version ??
+            data?.result?.metaInfo?.version ??
+            "1.0",
+        );
+        return { wireId, version, pineId: pineIdForm };
+      }
+    }
+  } catch {
+    // Network blip → fall through to basicstudies form.
+  }
   return {
     wireId: `${bareId}@tv-basicstudies-${TRADINGVIEW_BASICSTUDIES_VERSION}`,
     version: TRADINGVIEW_BASICSTUDIES_VERSION,
@@ -737,7 +782,7 @@ export class ChartSession {
 
     const inputsDict = buildInputsDict(body.inputs, body.params, meta, parentSlot);
 
-    if (wireId === TRADINGVIEW_PINE_SCRIPT_WIRE_ID) {
+    if (isPineFlowWireId(wireId)) {
       const scriptId = pineId ?? body.studyId.split("@")[0];
       if (!meta?.script) {
         return Response.json(
@@ -753,6 +798,7 @@ export class ChartSession {
     }
 
     const turnaround = 1;
+    const turnaroundToken = slotName;
     const slotEntry: SlotEntry = {
       slotName,
       studyId: body.studyId,
@@ -828,7 +874,7 @@ export class ChartSession {
           connection.send("create_study", [
             chartSession,
             slotName,
-            String(turnaround),
+            turnaroundToken,
             parentSlot,
             wireId,
             inputsDict,
@@ -964,13 +1010,12 @@ export class ChartSession {
         }, body.timeoutMs ?? DEFAULT_MODIFY_TIMEOUT_MS);
 
         try {
-          // modify_study wire format: [cs, st_slot, turnaround, indicator_id_with_version, inputs]
-          // Note 5-arg shape vs create_study's 6-arg (no parent_series_id).
+          // modify_study wire format: [cs, st_slot, turnaround, inputs]
+          // Note 4-arg shape vs create_study's 6-arg (no parent_series_id or study id).
           connection.send("modify_study", [
             chartSession,
             slot.slotName,
-            String(slot.turnaround),
-            slot.wireId,
+            `${slot.slotName}_${slot.turnaround}`,
             nextInputs,
           ]);
         } catch (err) {

@@ -299,6 +299,31 @@ describe("runPine", () => {
     expect(String(url)).toContain("pine_id=PUB%3Babc");
   });
 
+  it("source-only path: when translate_source returns ilTemplate without pineId, runStudy is called via pineSource and inputs.text is the IL", async () => {
+    const ilTemplate = "ENC_IL_PAYLOAD";
+    const metaInfo = { scriptIdPart: "v5", pine: { version: "1.0" }, inputs: [], plots: [] };
+    fetchMock.mockResolvedValueOnce(
+      mkResponse({ success: true, ilTemplate, metaInfo }),
+    );
+    runStudySpy.mockResolvedValueOnce({ ...studyResult, studyId: "PINE_SOURCE" });
+
+    const out = await runPine({
+      symbol: "BINANCE:BTCUSDT",
+      source: "//@version=5\nindicator('x')\nplot(close)",
+    });
+
+    expect(out.compile.success).toBe(true);
+    expect(out.compile.pineId).toBeUndefined();
+    expect(out.compile.ilTemplate).toBe(ilTemplate);
+    expect(runStudySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        symbol: "BINANCE:BTCUSDT",
+        studyId: "PINE_SOURCE",
+        pineSource: { ilTemplate, metaInfo },
+      }),
+    );
+  });
+
   it("throws when compile fails, attaches compile result on the error", async () => {
     fetchMock.mockResolvedValueOnce(
       mkResponse({

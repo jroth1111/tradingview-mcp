@@ -6,11 +6,13 @@ import {
   TIMEFRAME_MAP,
   TRADINGVIEW_BASICSTUDIES_VERSION,
   TRADINGVIEW_PINE_SCRIPT_WIRE_ID,
+  TRADINGVIEW_PINE_STRATEGY_WIRE_ID,
   TRADINGVIEW_WS_ENDPOINTS,
   VALID_TIMEFRAMES,
   buildChartSessionWsUrl,
   clampBarCount,
   frameTradingViewMessage,
+  isPineFlowWireId,
   normalizeTradingViewPayload,
   type BarLimitMode,
   type BarLimitPlan,
@@ -226,6 +228,7 @@ const connect = async (opts: {
                 ready = true;
                 clearTimeout(timeout);
                 send("set_auth_token", [token]);
+                send("set_locale", ["en", "US"]);
                 resolve({ subscribe, send, close });
                 break;
               case "event":
@@ -896,6 +899,13 @@ export interface StudyRequest {
   symbol: string;
   studyId: string; // canonical "STD;RSI", "PUB;<hash>", "USER;<id>", or pre-qualified "RSI@tv-basicstudies-265"
   script?: string; // accepted by the route contract; retained for source-backed study flows
+  // Source-only Pine path: when set, runStudy bypasses pineId resolution and
+  // injects the encrypted IL directly into create_study via inputs.text.
+  // pine-facade/translate_source returns no pineId for unsaved drafts but does
+  // return ilTemplate + metaInfo; this lets runners execute fresh source
+  // without first persisting a draft. studyId is used only for telemetry in
+  // this mode (callers may pass a synthetic value such as "PINE_SOURCE").
+  pineSource?: { ilTemplate: string; metaInfo?: any };
   inputs?: Record<string, any>; // raw wire form {in_0, in_1, ...}
   params?: Record<string, any>; // friendly {name: value} mapped via metainfo
   timeframe?: string | number; // default "60"
@@ -923,6 +933,7 @@ export interface StudyRequest {
 export interface StudyPlot {
   id: string;
   name: string;
+  title: string;
   type: string;
   data: Array<{ ts: number; value: any }>;
 }
@@ -996,11 +1007,51 @@ const resolveStudyWireId = async (
     return { wireId: TRADINGVIEW_PINE_SCRIPT_WIRE_ID, version, pineId: rawId };
   }
 
-  // Built-in studies (RSI, Volume, MACD, etc., or the legacy STD;<id> form)
-  // address into the basicstudies definition pack. The current pack version
-  // (TRADINGVIEW_BASICSTUDIES_VERSION) is what the live web client uses; the
-  // STD; prefix is no longer recognized by the WS gateway and must be dropped.
+  // Built-in studies bifurcate into two families on the modern TV gateway
+  // (verified 2026-05-07 via Camoufox web-client trace + std-pine-flow-probe.mjs):
+  //   • Pine-backed: EMA/SMA/WMA/VWMA/RSI/MACD/ATR/ADX/Stochastic/CCI/ROC/PSAR/
+  //     Volume/VWAP/Ichimoku and many more. The web client dispatches these via
+  //     Script@tv-scripting-101! with inputs.pineId="STD;<canonical_name>" and
+  //     inputs.text=<ilTemplate from pine-facade/translate>.
+  //   • Definition-bundle-only: BB/StochasticRSI/MOM/OBV/PivotPointsHighLow/
+  //     PivotPointsStandard/Dividends/Splits/Earnings. These return 404 from
+  //     pine-facade/translate and only work via <bareId>@tv-basicstudies-265.
+  // Strategy: probe pine-facade/translate first; if it returns ilTemplate, use
+  // the Pine flow (and pick StrategyScript wire when metaInfo.is_strategy);
+  // otherwise fall back to the basicstudies-265 form.
+  const pineIdForm = rawId.startsWith("STD;") ? rawId : `STD;${rawId}`;
   const bareId = rawId.startsWith("STD;") ? rawId.slice(4) : rawId;
+  try {
+    const headers: Record<string, string> = {};
+    if (sessionId) {
+      headers["cookie"] = sessionSign
+        ? `sessionid=${sessionId};sessionid_sign=${sessionSign}`
+        : `sessionid=${sessionId}`;
+    }
+    const resp = await fetch(
+      `https://pine-facade.tradingview.com/pine-facade/translate/${encodeURIComponent(pineIdForm)}/last`,
+      { headers },
+    );
+    if (resp.ok) {
+      const data: any = await resp.json();
+      const ilTemplate = data?.result?.ilTemplate ?? data?.result?.IL;
+      if (data?.success && ilTemplate) {
+        const isStrategy = data?.result?.metaInfo?.is_strategy === true;
+        const wireId = isStrategy
+          ? TRADINGVIEW_PINE_STRATEGY_WIRE_ID
+          : TRADINGVIEW_PINE_SCRIPT_WIRE_ID;
+        const version = String(
+          data?.result?.metaInfo?.pine?.version ??
+            data?.result?.metaInfo?.version ??
+            "1.0",
+        );
+        return { wireId, version, pineId: pineIdForm };
+      }
+    }
+  } catch {
+    // Network blip → fall through to basicstudies form. The legacy bundle
+    // path remains valid for studies TV hasn't migrated to Pine.
+  }
   return {
     wireId: `${bareId}@tv-basicstudies-${TRADINGVIEW_BASICSTUDIES_VERSION}`,
     version: TRADINGVIEW_BASICSTUDIES_VERSION,
@@ -1049,7 +1100,7 @@ const isUnixSeconds = (n: any): boolean =>
   typeof n === "number" && n > 1_000_000_000 && n < 4_000_000_000;
 
 const buildStudyPlots = (
-  meta: { plots?: any[] } | null,
+  meta: { plots?: any[]; metaInfo?: any } | null,
   rowsBySlot: Record<string, Array<{ i: number; v: any[] }>>,
   studySlot: string,
   seriesIndexToTs: Map<number, number>,
@@ -1063,12 +1114,15 @@ const buildStudyPlots = (
   const tsIsFirst = sample.length > 0 && isUnixSeconds(sample[0]);
 
   const plotDefs = (meta?.plots || []).filter((p: any) => p?.type !== "no_series");
+  const styles: Record<string, any> = meta?.metaInfo?.styles || {};
   const numPlotChannels = tsIsFirst ? sample.length - 1 : sample.length;
   const plotCount = plotDefs.length || numPlotChannels;
 
   const plots: StudyPlot[] = [];
   for (let pi = 0; pi < plotCount; pi += 1) {
     const def = plotDefs[pi] || {};
+    const plotId = def.id || `plot_${pi}`;
+    const title = styles[plotId]?.title || def.title || plotId;
     const data: Array<{ ts: number; value: any }> = [];
     for (const row of sortedRows) {
       const ts = tsIsFirst
@@ -1079,8 +1133,9 @@ const buildStudyPlots = (
       data.push({ ts, value });
     }
     plots.push({
-      id: def.id || `plot_${pi}`,
-      name: def.title || def.id || `plot_${pi}`,
+      id: plotId,
+      name: title,
+      title,
       type: def.type || "line",
       data,
     });
@@ -1102,29 +1157,65 @@ export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
   const parentSeriesId = req.parentSeriesId ?? "sds_1";
 
   // Resolve the wire id and (best-effort) metainfo for plot/input mapping.
-  const [{ wireId, version }, metaResult] = await Promise.allSettled([
-    resolveStudyWireId(req.studyId, req.sessionId, req.sessionSign),
-    getIndicatorMeta({
-      id: req.studyId.split("@")[0],
-      sessionId: req.sessionId,
-      sessionSign: req.sessionSign,
-    }).catch(() => null as any),
-  ]).then((r) => [
-    r[0].status === "fulfilled" ? r[0].value : { wireId: req.studyId, version: "last" },
-    r[1].status === "fulfilled" ? r[1].value : null,
-  ]) as [ResolvedWireId, IndicatorMeta | null];
+  // Source-only Pine bypasses both lookups: there is no real pineId to address
+  // pine-facade/translate, and the metaInfo from translate_source is already
+  // carried inline on req.pineSource.
+  let wireId: string;
+  let version: string;
+  let meta: IndicatorMeta | null;
+  let resolvedPineId: string | undefined;
+  if (req.pineSource) {
+    wireId = TRADINGVIEW_PINE_SCRIPT_WIRE_ID;
+    version = String(req.pineSource.metaInfo?.pine?.version ?? "1.0");
+    meta = req.pineSource.metaInfo
+      ? {
+          id: req.pineSource.metaInfo.scriptIdPart || req.studyId,
+          version,
+          description: req.pineSource.metaInfo.description,
+          shortDescription: req.pineSource.metaInfo.shortDescription,
+          inputs: req.pineSource.metaInfo.inputs || [],
+          plots: req.pineSource.metaInfo.plots || [],
+          script: req.pineSource.ilTemplate,
+          metaInfo: req.pineSource.metaInfo,
+        }
+      : null;
+  } else {
+    const [resolvedWire, metaResult] = await Promise.allSettled([
+      resolveStudyWireId(req.studyId, req.sessionId, req.sessionSign),
+      getIndicatorMeta({
+        id: req.studyId.split("@")[0],
+        sessionId: req.sessionId,
+        sessionSign: req.sessionSign,
+      }).catch(() => null as any),
+    ]).then((r) => [
+      r[0].status === "fulfilled" ? r[0].value : { wireId: req.studyId, version: "last" },
+      r[1].status === "fulfilled" ? r[1].value : null,
+    ]) as [ResolvedWireId, IndicatorMeta | null];
+    wireId = resolvedWire.wireId;
+    version = resolvedWire.version;
+    resolvedPineId = resolvedWire.pineId;
+    meta = metaResult;
+  }
 
-  const meta = metaResult;
   const inputsDict = req.inputsPreShaped
     ? { ...(req.inputs ?? {}) }
     : buildInputsDict(req.inputs, req.params, meta, parentSeriesId);
 
-  // Pine scripts (PUB;/USER;) execute via the framework wire id; the script
-  // identity must be injected into the inputs dict as { text, pineId,
-  // pineVersion }. The encrypted IL is fetched by getIndicatorMeta into
-  // meta.script (data.result.ilTemplate from pine-facade/translate).
-  if (wireId === TRADINGVIEW_PINE_SCRIPT_WIRE_ID) {
-    const pineId = req.studyId.split("@")[0];
+  // Pine flow (PUB;/USER; user scripts and built-ins like STD;EMA that TV has
+  // migrated to Pine under the hood) executes via Script@tv-scripting-101! or
+  // StrategyScript@tv-scripting-101!; the script identity must be injected
+  // into the inputs dict as { text, pineId, pineVersion }. The encrypted IL
+  // is fetched by getIndicatorMeta into meta.script (data.result.ilTemplate
+  // from pine-facade/translate). For the source-only path the IL comes from
+  // translate_source via req.pineSource; TV accepts inputs.text without
+  // pineId/pineVersion when no real id exists.
+  if (req.pineSource) {
+    inputsDict.text = req.pineSource.ilTemplate;
+  } else if (isPineFlowWireId(wireId)) {
+    // The resolver canonicalises STD;<name> built-ins (e.g. STD;Average%1Directional%1Index
+    // for ADX) — honour resolvedPineId when present and only fall back to the
+    // raw studyId for PUB;/USER; cases the user supplied directly.
+    const pineId = resolvedPineId ?? req.studyId.split("@")[0];
     if (!meta?.script) {
       throw new Error(`pine script ${pineId} missing IL: pine-facade/translate did not return ilTemplate`);
     }
@@ -1135,6 +1226,7 @@ export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
 
   const chartSession = generateSessionId("cs");
   const studySlot = "st1";
+  const studyTurnaround = studySlot;
 
   const connection = await connect({
     sessionId: req.sessionId,
@@ -1196,7 +1288,7 @@ export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
               connection.send("create_study", [
                 chartSession,
                 studySlot,
-                "",
+                studyTurnaround,
                 parentSeriesId,
                 wireId,
                 inputsDict,

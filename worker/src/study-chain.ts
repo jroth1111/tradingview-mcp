@@ -277,7 +277,7 @@ const buildInputsDict = (
 // === Internal: plot extraction (mirrors tradingview.ts:1009) ==============
 
 const buildStudyPlots = (
-  meta: { plots?: any[] } | null,
+  meta: { plots?: any[]; metaInfo?: any } | null,
   rowsBySlot: Record<string, Array<{ i: number; v: any[] }>>,
   studySlot: string,
   seriesIndexToTs: Map<number, number>,
@@ -290,12 +290,15 @@ const buildStudyPlots = (
   const tsIsFirst = sample.length > 0 && isUnixSeconds(sample[0]);
 
   const plotDefs = (meta?.plots || []).filter((p: any) => p?.type !== "no_series");
+  const styles: Record<string, any> = meta?.metaInfo?.styles || {};
   const numPlotChannels = tsIsFirst ? sample.length - 1 : sample.length;
   const plotCount = plotDefs.length || numPlotChannels;
 
   const plots: StudyPlot[] = [];
   for (let pi = 0; pi < plotCount; pi += 1) {
     const def = plotDefs[pi] || {};
+    const plotId = def.id || `plot_${pi}`;
+    const title = styles[plotId]?.title || def.title || plotId;
     const data: Array<{ ts: number; value: any }> = [];
     for (const row of sortedRows) {
       const ts = tsIsFirst
@@ -306,8 +309,9 @@ const buildStudyPlots = (
       data.push({ ts, value });
     }
     plots.push({
-      id: def.id || `plot_${pi}`,
-      name: def.title || def.id || `plot_${pi}`,
+      id: plotId,
+      name: title,
+      title,
       type: def.type || "line",
       data,
     });
@@ -406,16 +410,17 @@ const openChainConnection = async (opts: {
       }
       const payloads = parseMessage(text);
       for (const payload of payloads) {
-        switch (payload.type) {
-          case "ping":
-            socket.sendText(payload.data).catch(() => {});
-            break;
-          case "session":
-            ready = true;
-            clearTimeout(timeout);
-            send("set_auth_token", [token]);
-            resolve();
-            break;
+            switch (payload.type) {
+              case "ping":
+                socket.sendText(payload.data).catch(() => {});
+                break;
+              case "session":
+                ready = true;
+                clearTimeout(timeout);
+                send("set_auth_token", [token]);
+                send("set_locale", ["en", "US"]);
+                resolve();
+                break;
           case "event":
             subscribers.forEach((handler) =>
               handler({ name: payload.data.m, params: payload.data.p }),
@@ -533,7 +538,7 @@ export const runStudyChain = async (req: StudyChainRequest): Promise<StudyChainR
           connection.send("create_study", [
             chartSession,
             p.slotName,
-            "",
+            p.slotName,
             p.parentSlot,
             p.wireId,
             p.inputsDict,

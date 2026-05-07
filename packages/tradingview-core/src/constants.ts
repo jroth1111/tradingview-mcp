@@ -26,10 +26,23 @@ export const buildChartSessionWsUrl = (endpoint: TradingviewEndpoint): string =>
 // with the current TV web client's catalog.
 export const TRADINGVIEW_BASICSTUDIES_VERSION = "265";
 
-// Wire ID emitted for any Pine script create_study (PUB; or USER;). Script
-// identity moves into the inputs dict as { text, pineId, pineVersion } — the
-// wireId is the framework slot, not the script reference.
+// Wire ID emitted for any Pine script create_study (PUB; or USER;) AND for
+// every TradingView built-in study that has been migrated to Pine under the
+// hood (STD;EMA, STD;RSI, STD;Average_True_Range, …). Script identity moves
+// into the inputs dict as { text, pineId, pineVersion } — the wireId is the
+// framework slot, not the script reference.
 export const TRADINGVIEW_PINE_SCRIPT_WIRE_ID = "Script@tv-scripting-101!";
+
+// Wire ID for Pine STRATEGIES (built-in or user). Same identity envelope as
+// the study wire (text/pineId/pineVersion), distinct framework slot. Verified
+// 2026-05-07 against built-in STD;MACD%1Strategy and STD;Bollinger%1Bands%1Strategy.
+export const TRADINGVIEW_PINE_STRATEGY_WIRE_ID = "StrategyScript@tv-scripting-101!";
+
+// True for either Pine framework wireId — convenience for dispatchers that
+// inject text/pineId/pineVersion regardless of study/strategy variant.
+export const isPineFlowWireId = (wireId: string): boolean =>
+  wireId === TRADINGVIEW_PINE_SCRIPT_WIRE_ID ||
+  wireId === TRADINGVIEW_PINE_STRATEGY_WIRE_ID;
 
 export const VALID_TIMEFRAMES = new Set([
   "1",

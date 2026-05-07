@@ -291,10 +291,32 @@ export const runPine = async (req: PineRunRequest): Promise<PineRunResult> => {
   }
 
   const studyId = compile.pineId ?? req.pineId;
+
+  // pine-facade/translate_source returns no pineId for unsaved drafts; the
+  // ilTemplate it returns is sufficient for create_study via the source-only
+  // path. Real pineIds (translate_light, eval_pine_ex) take the wire-id route.
   if (!studyId) {
-    const err: any = new Error("pine compile did not return a pineId");
-    err.compile = compile;
-    throw err;
+    if (!compile.ilTemplate) {
+      const err: any = new Error(
+        "pine compile returned neither pineId nor ilTemplate",
+      );
+      err.compile = compile;
+      throw err;
+    }
+    const result = await runStudy({
+      symbol: req.symbol,
+      studyId: "PINE_SOURCE",
+      pineSource: { ilTemplate: compile.ilTemplate, metaInfo: compile.metaInfo },
+      inputs: req.inputs,
+      params: req.params,
+      timeframe: req.timeframe,
+      bars: req.bars,
+      sessionId: req.sessionId,
+      sessionSign: req.sessionSign,
+      endpoint: req.endpoint,
+      parentSeriesId: req.parentSeriesId,
+    });
+    return { compile, result };
   }
 
   const result = await runStudy({
