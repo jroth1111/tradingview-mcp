@@ -50,7 +50,7 @@ Each row is one user intent. For deep schemas read the linked reference doc.
 | Indicator metadata | `POST /v1/indicators/meta` | public | `indicator-evaluate.md` | `indicators.md` |
 | Typed indicator inputs | `GET /v1/indicators/inputs/{id}` | public | `indicator-evaluate.md` | `indicators.md` |
 | Run an indicator | `POST /v1/study` | authenticated | `indicator-evaluate.md` | `wire-formats.md`, `indicators.md` |
-| Download indicator source / compiled artifact | `POST /v1/indicators/meta` (ilTemplate, any) → `GET /v1/pine/translate-light` (Pine source, open-source only) | public for open; authenticated for UOI/private | `download-indicator-source.md` | `indicators.md` |
+| Download indicator source / compiled artifact | `POST /v1/pubscripts/batch` or `/suggest` (`scriptSource`, open-source `PUB;`) → `POST /v1/indicators/meta` (`IL`/`ilTemplate`, any accessible indicator) | public for open; authenticated for UOI/private | `download-indicator-source.md` | `indicators.md` |
 | List private scripts | `POST /v1/indicators/private` | authenticated | `list-indicators.md` | `indicators.md` |
 | Pine compile (eval/full/light) | `POST /v1/pine/compile` | authenticated | `pinescript-iterate.md` | `pinescript.md` |
 | Pine run | `POST /v1/pine/run` | authenticated | `pinescript-iterate.md` | `pinescript.md`, `wire-formats.md` |

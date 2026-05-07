@@ -22,6 +22,8 @@ This is an AES-encrypted blob. The decryption key is identified by `key_id` and 
 
 > `GET /v1/pine/translate-light` (`pine-facade/translate-light-source`) is a separate path that returns Pine source **only** for `USER;` scripts the authenticated account owns (i.e. scripts the user personally wrote). It returns 404 for every other type — including public open-source `PUB;` scripts, UOI, and `STD;` built-ins.
 
+Runtime evidence nuance: public-script metadata can include the encrypted IL blob as a hidden default input (`ILScript` / `text`). A chart `create_study` flow may pass that opaque blob through with the indicator runtime id, but the browser-side evidence does **not** show the browser decrypting it or sending plaintext Pine source. Treat the blob as an execution token for TradingView's chart runtime, not as source.
+
 ## Step 1 — Resolve the indicator ID
 
 If you already have the `scriptIdPart` skip to step 2.
