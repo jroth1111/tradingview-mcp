@@ -843,8 +843,10 @@ export class ChartSession {
             if (event.name === "study_error") {
               const errSlot = event.params?.[1];
               if (errSlot && errSlot !== slotName) return;
-              const reason = event.params?.[2];
-              const detail = event.params?.[3];
+              // study_error params: [csId, slot, key, reason, detail?].
+              // Fall back to the older 4-field form [csId, slot, reason, detail].
+              const reason = event.params?.[3] ?? event.params?.[2];
+              const detail = event.params?.[4] ?? event.params?.[3];
               finish(
                 new Error(
                   `study_error: ${reason ?? "unknown"}${
@@ -985,8 +987,10 @@ export class ChartSession {
             if (event.name === "study_error") {
               const errSlot = event.params?.[1];
               if (errSlot && errSlot !== slot.slotName) return;
-              const reason = event.params?.[2];
-              const detail = event.params?.[3];
+              // study_error params: [csId, slot, key, reason, detail?].
+              // Fall back to the older 4-field form [csId, slot, reason, detail].
+              const reason = event.params?.[3] ?? event.params?.[2];
+              const detail = event.params?.[4] ?? event.params?.[3];
               finish(
                 new Error(
                   `study_error: ${reason ?? "unknown"}${

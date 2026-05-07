@@ -1322,8 +1322,12 @@ export const runStudy = async (req: StudyRequest): Promise<StudyResult> => {
         }
 
         if (event.name === "study_error") {
-          const reason = event.params?.[2];
-          const detail = event.params?.[3];
+          // study_error params: [csId, slot, key, reason, detail?]; the
+          // human-readable reason lives at index 3 (index 2 is the
+          // <series>_<turnaround> key). Fall back to the older 4-field form
+          // [csId, slot, reason, detail] for gateway compatibility.
+          const reason = event.params?.[3] ?? event.params?.[2];
+          const detail = event.params?.[4] ?? event.params?.[3];
           const err = new Error(`study_error: ${reason ?? "unknown"}${detail ? `: ${JSON.stringify(detail)}` : ""}`);
           (err as any).reason = reason;
           (err as any).detail = detail;
