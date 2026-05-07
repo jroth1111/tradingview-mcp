@@ -36,6 +36,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 # ---------------------------------------------------------------------------
 # HMAC auth helpers
@@ -234,13 +235,208 @@ def cmd_download(args, cfg: dict) -> None:
     signal_cols = [f for f in fieldnames if f not in core]
     ordered = core + sorted(signal_cols)
 
-    with open(out_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=ordered, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(all_rows)
-
-    print(f"\nSaved {len(all_rows)} rows → {out_path}")
+    fmt = getattr(args, "format", "csv")
+    if fmt in ("parquet", "both"):
+        pq_path = out_path.with_suffix(".parquet")
+        _save_parquet(all_rows, pq_path)
+        print(f"Saved {len(all_rows)} rows → {pq_path}")
+    if fmt in ("csv", "both") or fmt == "csv":
+        with open(out_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=ordered, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(all_rows)
+        print(f"Saved {len(all_rows)} rows → {out_path}")
     print(f"Columns: {ordered}")
+
+
+# ---------------------------------------------------------------------------
+# Feature engineering
+# ---------------------------------------------------------------------------
+
+def engineer_features(rows: list[dict]) -> list[dict]:
+    """Add derived features to signal rows: returns, normalized values, signal flags."""
+    if not rows:
+        return rows
+
+    # Sort by timestamp
+    rows.sort(key=lambda r: r["ts"])
+    signal_cols = [k for k in rows[0] if k not in ("symbol", "timeframe", "ts")]
+
+    # Compute returns from any plot that looks like a price series (large absolute values)
+    for col in signal_cols:
+        values = [r.get(col) for r in rows]
+        if not all(isinstance(v, (int, float)) for v in values):
+            continue
+
+        # Only compute returns for numeric series with enough variance
+        numeric = [v for v in values if v is not None and v != 0]
+        if not numeric:
+            continue
+
+        # Simple pct change
+        for i in range(1, len(rows)):
+            prev = rows[i - 1].get(col)
+            curr = rows[i].get(col)
+            if prev and curr and prev != 0:
+                rows[i][f"{col}_pct"] = (curr - prev) / abs(prev)
+            else:
+                rows[i][f"{col}_pct"] = None
+
+    # Add timestamp-derived features
+    for row in rows:
+        ts = row.get("ts", 0)
+        if ts:
+            import datetime
+            dt = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
+            row["hour"] = dt.hour
+            row["day_of_week"] = dt.weekday()
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Parquet output
+# ---------------------------------------------------------------------------
+
+def _save_parquet(rows: list[dict], path: Path) -> None:
+    """Save rows to parquet with proper type inference."""
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+    except ImportError:
+        try:
+            import polars as pl
+
+            df = pl.DataFrame(rows)
+            df.write_parquet(str(path))
+            return
+        except ImportError:
+            print("WARNING: Install pyarrow or polars for parquet output: pip install pyarrow", file=sys.stderr)
+            return
+
+    fieldnames = list(rows[0].keys())
+    columns: dict[str, list] = {k: [r.get(k) for r in rows] for k in fieldnames}
+
+    # Numeric conversion per column
+    for k in fieldnames:
+        vals = columns[k]
+        try:
+            columns[k] = [None if v == "" else float(v) for v in vals]
+        except (ValueError, TypeError):
+            columns[k] = vals
+
+    arrays = [pa.array(columns[k]) for k in fieldnames]
+    table = pa.table(dict(zip(fieldnames, arrays)))
+    pq.write_table(table, str(path))
+
+
+# ---------------------------------------------------------------------------
+# Collect command — batch ML data collection
+# ---------------------------------------------------------------------------
+
+def _load_collect_config(path: str) -> dict:
+    """Load collect config from YAML or JSON."""
+    text = Path(path).read_text()
+    if path.endswith((".yaml", ".yml")):
+        try:
+            import yaml
+            return yaml.safe_load(text)
+        except ImportError:
+            # Minimal YAML parser for the subset we use
+            import json
+            # Fallback: try to parse as JSON
+            return json.loads(text)
+    return json.loads(text)
+
+
+def cmd_collect(args, cfg: dict) -> None:
+    """Batch collect indicator signals for ML training."""
+    config = _load_collect_config(args.config)
+
+    symbols = config["symbols"]
+    timeframes = config["timeframes"]
+    bars = config.get("bars", 5000)
+    indicators = config["indicators"]
+    output_dir = Path(config.get("output_dir", "ml/data"))
+    delay = config.get("delay_seconds", 1.5)
+    fmt = config.get("format", "both")
+
+    # Calculate total tasks
+    total = len(indicators) * len(symbols) * len(timeframes)
+    print(f"Collection plan:")
+    print(f"  Indicators:  {len(indicators)}")
+    print(f"  Symbols:     {len(symbols)}")
+    print(f"  Timeframes:  {len(timeframes)}")
+    print(f"  Bars:        {bars}")
+    print(f"  Total tasks: {total}")
+    print(f"  Output:      {output_dir}")
+    print(f"  Format:      {fmt}")
+    print()
+
+    if args.dry_run:
+        for ind in indicators:
+            for symbol in symbols:
+                for tf in timeframes:
+                    name = ind.get("name", ind["id"].replace(";", "_"))
+                    print(f"  {name:40s} {symbol:20s} tf={tf:4s} bars={bars}")
+        return
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    done = 0
+    errors = 0
+
+    for ind in indicators:
+        ind_id = ind["id"]
+        ind_name = ind.get("name", ind_id.replace(";", "_"))
+
+        for symbol in symbols:
+            for tf in timeframes:
+                done += 1
+                label = f"[{done}/{total}] {ind_name} {symbol} tf={tf}"
+                out_stem = output_dir / f"{ind_name}_{symbol.replace(':', '_')}_{tf}"
+
+                # Skip if output already exists
+                if out_stem.with_suffix(".parquet").exists() or out_stem.with_suffix(".csv").exists():
+                    print(f"  SKIP (exists) {label}")
+                    continue
+
+                print(f"  {label}", flush=True)
+                try:
+                    result = run_study(symbol, ind_id, tf, bars, None, cfg)
+                    rows = extract_rows(result, symbol, tf)
+                except RuntimeError as e:
+                    print(f"  ERROR: {e}", file=sys.stderr)
+                    errors += 1
+                    continue
+
+                if not rows:
+                    print(f"  WARNING: no data", file=sys.stderr)
+                    errors += 1
+                    continue
+
+                rows = engineer_features(rows)
+
+                # Determine columns
+                core = ["symbol", "timeframe", "ts", "hour", "day_of_week"]
+                signal_cols = sorted(k for k in rows[0] if k not in core)
+                ordered = core + signal_cols
+
+                if fmt in ("csv", "both"):
+                    with open(out_stem.with_suffix(".csv"), "w", newline="") as f:
+                        writer = csv.DictWriter(f, fieldnames=ordered, extrasaction="ignore")
+                        writer.writeheader()
+                        writer.writerows(rows)
+
+                if fmt in ("parquet", "both"):
+                    _save_parquet(rows, out_stem.with_suffix(".parquet"))
+
+                print(f"    {len(rows)} rows, {len(signal_cols)} signal columns")
+
+                if done < total:
+                    time.sleep(delay)
+
+    print(f"\nCollection complete: {done - errors}/{total} succeeded, {errors} errors")
+    print(f"Output directory: {output_dir}")
 
 
 def main() -> None:
@@ -265,12 +461,18 @@ def main() -> None:
         help='Symbols e.g. BINANCE:BTCUSDT NASDAQ:AAPL'
     )
     d.add_argument("--timeframe", default="60", help="Timeframe: 1 5 15 60 240 D W (default: 60)")
-    d.add_argument("--bars", type=int, default=5000, help="Bars per symbol (max 20000, default 5000)")
-    d.add_argument("--out", default="signals.csv", help="Output CSV path (default: signals.csv)")
+    d.add_argument("--bars", type=int, default=5000, help="Bars per symbol (max 20000, default: 5000)")
+    d.add_argument("--out", default="signals.csv", help="Output path (default: signals.csv)")
+    d.add_argument("--format", default="parquet", choices=["csv", "parquet", "both"], help="Output format (default: parquet)")
     d.add_argument(
         "--inputs", default=None,
         help='JSON object of indicator inputs to override, e.g. \'{"length": 14}\''
     )
+
+    # collect sub-command — batch ML data collection
+    c = sub.add_parser("collect", help="Batch collect signals for ML training.")
+    c.add_argument("--config", required=True, help="YAML/JSON config file path")
+    c.add_argument("--dry-run", action="store_true", help="Print plan without collecting")
 
     # Convenience: top-level --search still works (legacy compat)
     parser.add_argument("--search", help="(shorthand) Search indicator catalog")
@@ -287,6 +489,8 @@ def main() -> None:
         cmd_meta(args, cfg)
     elif args.cmd == "download":
         cmd_download(args, cfg)
+    elif args.cmd == "collect":
+        cmd_collect(args, cfg)
     else:
         parser.print_help()
 

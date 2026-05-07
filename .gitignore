@@ -31,3 +31,8 @@ worker/.wrangler/
 .dolt/
 *.db
 .beads-credential-key
+
+# ML data and virtual environment
+ml/data/
+ml/.venv/
+worker/wrangler.dev.jsonc

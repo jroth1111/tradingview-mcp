@@ -1,0 +1,46 @@
+# ML Signal Collection Configuration
+# Used by: python download_indicator.py collect --config collect-config.yaml
+
+# Output directory for collected data
+output_dir: ml/data
+
+# Symbols to collect across
+symbols:
+  - BINANCE:BTCUSDT
+  - BINANCE:ETHUSDT
+  - NASDAQ:AAPL
+  - NASDAQ:QQQ
+  - FX:EURUSD
+
+# Timeframes
+timeframes:
+  - "60"    # 1H
+  - "240"   # 4H
+  - "1D"    # Daily
+
+# Bars per symbol/timeframe combination
+bars: 5000
+
+# Indicators to collect
+# Each entry: id (scriptIdPart), optional name for file naming
+indicators:
+  - id: PUB;edfaff05350f406092874780e934f06c
+    name: algorganic-buy-sell-x-exit
+
+  - id: PUB;8ec469c9f5ff4879a0f3d5bc3950fd52
+    name: bollinger-bands-trend-boosted
+
+  - id: PUB;lTpQ0MTLqGE8UWylUj1t8cxLYwuZBc6r
+    name: standardized-trend-map
+
+  - id: STD;RSI
+    name: rsi
+
+  - id: STD;MACD
+    name: macd
+
+# Rate limiting: delay between requests (seconds)
+delay_seconds: 1.5
+
+# Output format: csv, parquet, or both
+format: parquet
